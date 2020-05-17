@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
+from sklearn.externals import joblib
 import tensorflow as tf
 from keras.optimizers import Adam
 from keras import backend as K
@@ -20,7 +21,7 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.models import Model
 from keras.layers.recurrent import LSTM
 
-np.set_printoptions(threshold=np.nan)
+# np.set_printoptions(threshold=np.nan) # jw change
 
 INDEX_COLS = ['subject_id', 'icustay_id', 'hours_in', 'hadm_id']
 
@@ -96,7 +97,7 @@ def get_args():
         test set. Adding the flag will result in saving minimum, maximum and average AUCs on bo6otstrapped samples of the validation dataset. ")
     parser.add_argument("--num_test_bootstrap_samples", type=int, default=100,
                         help="Number of bootstrapping samples to evaluate on for the test set. Type: int. Default: 100. ")
-    parser.add_argument("--gpu_num", type=str, default='0', 
+    parser.add_argument("--gpu_num", type=str, default='5', 
                         help="Limit GPU usage to specific GPUs. Specify multiple GPUs with the format '0,1,2'. Type: String. Default: '0'.")
 
     args = parser.parse_args()
@@ -118,10 +119,23 @@ def load_phys_data():
                 Should include {'subject_id', 'hadm_id', 'icustay_id'}.
     """
 
-    X = pd.read_hdf(data_path + 'X.h5', 'X')
+    # ask: I should use ("all_hourly_data.h5", "vitals_labs_mean")
+    # X = pd.read_hdf(data_path + 'X.h5', 'X')
+
+    # jw: full features
+    # X = pd.read_hdf(data_path + 'all_hourly_data.h5', 'vitals_labs_mean')
+
+    # jw: subset_features: 29 features
+    X = joblib.load(data_path + 'all_hourly_data_subset.pkl')
+    
     # Y = pd.read_hdf(data_path + 'Y.h5', 'Y')
+    # ask: I should use static_data
     static = pd.DataFrame.from_csv(data_path + 'static.csv')
 
+    # jw: only use the top level: https://stackoverflow.com/questions/14507794/pandas-how-to-flatten-a-hierarchical-index-in-columns
+    X.columns = [' '.join(col).strip() for col in X.columns.values]
+    static = static.reset_index()
+    
     if 'subject_id' not in X.columns:
         X = X.reset_index()
         X.columns = [fix_byte_data(c) for c in X.columns]
@@ -300,13 +314,14 @@ def generate_bootstrap_indices(X, y, split, num_bootstrap_samples=100):
     return all_pos_samples, all_neg_samples
 
 
-def get_bootstrapped_dataset(X, y, cohorts, index=0, test=False, num_bootstrap_samples=100):
+def get_bootstrapped_dataset(X, y, preds, cohorts, index=0, test=False, num_bootstrap_samples=100):
     """ 
     Returns a bootstrapped (sampled w replacement) dataset. 
     Args:
         X (Numpy array): X matrix, shape = num patients x num timesteps x num features.
         y (Numpy array): Y matrix, shape = num_patients.
         cohorts (Numpy array): array of cohort membership, shape = num_patients.
+        preds (Numpy array): array of predictions, shape = num_patients. added by jw
         index (int): which bootstrap sample to look at. 
         test (bool): 
         num_bootstrap_samples (int):
@@ -315,8 +330,14 @@ def get_bootstrapped_dataset(X, y, cohorts, index=0, test=False, num_bootstrap_s
         of positive and negative examples. 
     """
 
+    # jw: make sure y is numpy
+    if type(y) is pd.DataFrame:
+        y = y.values.ravel()
+    if type(cohorts) is pd.DataFrame:
+        cohorts = cohorts.values.ravel()
+        
     if index == 0:
-        return X, y, cohorts
+        return X, y, preds, cohorts
 
     positive_X = X[np.where(y == 1)]
     negative_X = X[np.where(y == 0)]
@@ -324,6 +345,8 @@ def get_bootstrapped_dataset(X, y, cohorts, index=0, test=False, num_bootstrap_s
     negative_cohorts = cohorts[np.where(y == 0)]
     positive_y = y[np.where(y == 1)]
     negative_y = y[np.where(y == 0)]
+    positive_preds = preds[np.where(y == 1)]
+    negative_preds = preds[np.where(y == 0)]
 
     split = 'test' if test else 'val'
     try:
@@ -345,11 +368,13 @@ def get_bootstrapped_dataset(X, y, cohorts, index=0, test=False, num_bootstrap_s
         (positive_y[pos_samples], negative_y[neg_samples]))
     all_cohorts_bootstrapped = np.concatenate(
         (positive_cohorts[pos_samples], negative_cohorts[neg_samples]))
+    all_preds_bootstrapped = np.concatenate(
+        (positive_preds[pos_samples], negative_preds[neg_samples]))        
 
-    return all_X_bootstrappped, all_y_bootstrapped, all_cohorts_bootstrapped
+    return all_X_bootstrappped, all_y_bootstrapped, all_preds_bootstrapped, all_cohorts_bootstrapped
 
 
-def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, model, return_everything=False, test=False, all_tasks=[], num_bootstrap_samples=100):
+def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, preds_orig, return_everything=False, test=False, all_tasks=[], num_bootstrap_samples=100):
     """ 
     Evaluates model on each of the num_bootstrap_samples sets. 
     Args: 
@@ -357,7 +382,8 @@ def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, model, return_everythi
         y_orig (Numpy array): The y matrix. 
         cohorts_orig (Numpy array): List of cohort membership for each X example.
         task (String/Int): task to evalute on (either 'all' to evalute on the entire dataset, or a specific task). 
-        model (Keras model): the model to evaluate.
+        model (Keras model): the model to evaluate.; jw: changed to preds_orig: 
+        can be obtained by preds_orig = model.predict(X_orig, batch_size=128)
         return_everything (bool): if True, return list of AUCs on all bootstrapped samples. If False, return [min auc, max auc, avg auc].
         test (bool): if True, use the test bootstrap indices.
         all_tasks (list): list of the tasks (used for evaluating multitask model).
@@ -365,22 +391,25 @@ def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, model, return_everythi
     Returns: 
         all_aucs OR min_auc, max_auc, avg_auc depending on the value of return_everything.
     """
-
     all_aucs = []
-
     for i in range(num_bootstrap_samples):
-        X_bootstrap_sample, y_bootstrap_sample, cohorts_bootstrap_sample = get_bootstrapped_dataset(
-            X_orig, y_orig, cohorts_orig, index=i, test=test, num_bootstrap_samples=num_bootstrap_samples)
+        X_bootstrap_sample, y_bootstrap_sample, preds_sample, cohorts_bootstrap_sample = get_bootstrapped_dataset( # jw: added preds_orig to prevent run models multiple times
+            X_orig, y_orig, preds_orig, cohorts_orig, index=i, test=test, num_bootstrap_samples=num_bootstrap_samples)
         if task != 'all':
             X_bootstrap_sample_task = X_bootstrap_sample[cohorts_bootstrap_sample == task]
             y_bootstrap_sample_task = y_bootstrap_sample[cohorts_bootstrap_sample == task]
             cohorts_bootstrap_sample_task = cohorts_bootstrap_sample[cohorts_bootstrap_sample == task]
+            # jw: added preds_orig to prevent run models multiple times
+            preds = preds_sample[cohorts_bootstrap_sample == task]
         else:
             X_bootstrap_sample_task = X_bootstrap_sample
             y_bootstrap_sample_task = y_bootstrap_sample
             cohorts_bootstrap_sample_task = cohorts_bootstrap_sample
+            # jw: added preds_orig to prevent run models multiple times
+            preds = preds_sample
 
-        preds = model.predict(X_bootstrap_sample_task, batch_size=128)
+        ####### jw: remove model to prevent run it multiple times
+        # preds = model.predict(X_bootstrap_sample_task, batch_size=128)
         if len(preds) < len(y_bootstrap_sample_task):
             preds = get_correct_task_mtl_outputs(
                 preds, cohorts_bootstrap_sample_task, all_tasks)
@@ -390,7 +419,7 @@ def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, model, return_everythi
             all_aucs.append(auc)
         except Exception as e:
             print(e)
-            print('Skipped this sample.')
+            print('Skipped this sample. len {}'.format(len(preds)))
 
     avg_auc = np.mean(all_aucs)
     min_auc = min(all_aucs)
@@ -541,7 +570,7 @@ def get_mtl_sample_weights(y, cohorts, all_tasks, sample_weights=None):
     sw_dict = {}
     for task in all_tasks:
         task_indicator_col = (cohorts == task).astype(int)
-        if sample_weights:
+        if sample_weights is not None: # jw: previously "if sample_weights" is ambiguous
             task_indicator_col = np.array(
                 task_indicator_col) * np.array(sample_weights)
         sw_dict[task] = task_indicator_col
@@ -610,6 +639,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
 
     # if we're testing, just load the model and save results
     if FLAGS.test_time:
+        y_pred = model.predict(X_test, batch_size=128)                
         for task in all_tasks:
             model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                                  str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
@@ -618,7 +648,8 @@ def run_separate_models(X_train, y_train, cohorts_train,
             model = load_model(model_path)
 
             if FLAGS.test_bootstrap:
-                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, model, return_everything=True,
+                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, y_pred,
+                                             return_everything=True,
                                              test=True, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
                 cohort_aucs.append(np.array(all_aucs))
 
@@ -675,8 +706,9 @@ def run_separate_models(X_train, y_train, cohorts_train,
 
             cohort_aucs.append(auc)
         else:
+            preds_orig = model.predict(X_val, batch_size=128)            
             min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, model, return_everything=False, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
+                X_val, y_val, cohorts_val, task, preds_orig, return_everything=False, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
             cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
             auc = avg_auc
             print("(min/max/average):")
@@ -752,7 +784,7 @@ def run_global_model(X_train, y_train, cohorts_train,
         # all bootstrapped AUCs
         for task in all_tasks:
             if FLAGS.test_bootstrap:
-                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, model, return_everything=True,
+                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, y_pred, return_everything=True,
                                              test=True, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
                 cohort_aucs.append(np.array(all_aucs))
             else:
@@ -768,7 +800,7 @@ def run_global_model(X_train, y_train, cohorts_train,
                 (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
 
             # Micro AUC
-            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', model,
+            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', y_pred,
                                                return_everything=True, test=True, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
             cohort_aucs = np.concatenate(
                 (cohort_aucs, np.array([all_micro_aucs])))
@@ -820,7 +852,7 @@ def run_global_model(X_train, y_train, cohorts_train,
             cohort_aucs.append(auc)
         else:
             min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, model, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
+                X_val, y_val, cohorts_val, task, y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
             cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
             print ("(min/max/average): ")
 
@@ -838,7 +870,7 @@ def run_global_model(X_train, y_train, cohorts_train,
         cohort_aucs = np.concatenate((cohort_aucs, np.array([micro_auc])))
     else:
         min_auc, max_auc, avg_auc = bootstrap_predict(
-            X_val, y_val, cohorts_val, 'all', model, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
+            X_val, y_val, cohorts_val, 'all', y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
         cohort_aucs = np.concatenate(
             (cohort_aucs, np.array([[min_auc, max_auc, avg_auc]])))
 
@@ -909,18 +941,19 @@ def run_multitask_model(X_train, y_train, cohorts_train,
             '/models/' + "_".join(model_fname_parts)
         model = load_model(model_path)
         y_pred = model.predict(X_test)
+        # jw: not sure why this is wrong, could be keras changed version? but add the following is ok
+        y_pred = np.hstack(y_pred)
         
         cohort_aucs = []
         for task in all_tasks:
             if FLAGS.test_bootstrap:
                 all_aucs = bootstrap_predict(X_test, y_test, cohorts_test,
-                                             task=task, model=model, return_everything=True, test=True,
+                                             task=task, preds_orig=y_pred, return_everything=True, test=True,
                                              all_tasks=all_tasks,
                                              num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
                 cohort_aucs.append(np.array(all_aucs))
             else:
-                y_pred_in_cohort = y_pred[cohorts_test ==
-                                          task, cohort_key[task]]
+                y_pred_in_cohort = y_pred[cohorts_test == task, cohort_key[task]]
                 y_true_in_cohort = y_test[cohorts_test == task]
                 auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
                 cohort_aucs.append(auc)
@@ -930,7 +963,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
             cohort_aucs = np.concatenate(
                 (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
 
-            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', model, return_everything=True, test=True,
+            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', y_pred, return_everything=True, test=True,
                                                all_tasks=all_tasks, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
             cohort_aucs = np.concatenate(
                 (cohort_aucs, np.array([all_micro_aucs])))
@@ -990,7 +1023,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
             cohort_aucs.append(auc)
         else:
             min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, mtl_model, all_tasks=all_tasks, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
+                X_val, y_val, cohorts_val, task, y_pred, all_tasks=all_tasks, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
             cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
             print("(min/max/average):")
 
@@ -1007,7 +1040,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
             (cohort_aucs, np.array([roc_auc_score(y_val, y_pred)])))
     else:
         min_auc, max_auc, avg_auc = bootstrap_predict(
-            X_val, y_val, cohorts_val, 'all', mtl_model, all_tasks=all_tasks, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
+            X_val, y_val, cohorts_val, 'all', y_pred, all_tasks=all_tasks, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
         cohort_aucs = np.concatenate(
             (cohort_aucs, np.array([[min_auc, max_auc, avg_auc]])))
 
@@ -1056,7 +1089,8 @@ def load_processed_data(data_hours=24, gap_time=12):
     # see if we already have the data matrices saved
     try:
         X = np.load(save_data_path + 'X.npy')
-        careunits = np.load(save_data_path + 'careunits.npy')
+        # jw: need to allow_pickle=True
+        careunits = np.load(save_data_path + 'careunits.npy', allow_pickle=True)
         saps_quartile = np.load(save_data_path + 'saps_quartile.npy')
         subject_ids = np.load(save_data_path + 'subject_ids.npy')
         Y = np.load(save_data_path + 'Y.npy')
@@ -1087,8 +1121,11 @@ def load_processed_data(data_hours=24, gap_time=12):
         deathtimes_valid['mort_hosp_valid'] = True
         cmo = pd.read_csv('data/code_status.csv')
         cmo = cmo[cmo.cmo > 0]
-        cmo['timecmo_chart'] = pd.to_datetime(cmo.timecmo_chart)
-        cmo['timecmo_nursingnote'] = pd.to_datetime(cmo.timecmo_nursingnote)
+        # cmo['timecmo_chart'] = pd.to_datetime(cmo.timecmo_chart) # ask: is it cmo_first_charttime?
+        # cmo['timecmo_nursingnote'] = pd.to_datetime(cmo.timecmo_nursingnote) # ask: is it cmo_nursingnote_charttime        
+        cmo['timecmo_chart'] = pd.to_datetime(cmo.cmo_first_charttime) # ask: is it cmo_first_charttime?        
+        cmo['timecmo_nursingnote'] = pd.to_datetime(cmo.cmo_nursingnote_charttime) # ask: is it cmo_nursingnote_charttime
+        
         cmo['cmo_min_time'] = cmo.loc[:, [
             'timecmo_chart', 'timecmo_nursingnote']].min(axis=1)
         all_mort_times = pd.merge(deathtimes_valid, cmo, on=['subject_id', 'hadm_id', 'icustay_id'], how='outer')[
@@ -1304,3 +1341,4 @@ if __name__ == "__main__":
         run_global_model(*run_model_args)
     elif FLAGS.model_type == 'MULTITASK':
         run_multitask_model(*run_model_args)
+

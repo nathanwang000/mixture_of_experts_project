@@ -1,6 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
-
+os.environ["CUDA_VISIBLE_DEVICES"]="5"
 
 from numpy.random import seed
 seed(1)
@@ -119,6 +118,7 @@ if __name__ == "__main__":
     # Load Data
     X, Y, careunits, saps_quartile, subject_ids = load_processed_data(FLAGS.data_hours, FLAGS.gap_time)
     Y = Y.astype(int)
+    print('X shape {}'.format(X.shape))
     cohort_col = careunits
 
     # Train, val, test split
@@ -135,7 +135,10 @@ if __name__ == "__main__":
 
     # Train GMM
     print("Fitting GMM ...")
-    gm = GaussianMixture(n_components=FLAGS.num_clusters, tol=FLAGS.gmm_tol, verbose=True)
+    gm = GaussianMixture(n_components=FLAGS.num_clusters, tol=FLAGS.gmm_tol,
+                         n_init=30, # jw: reported in paper
+                         init_params='kmeans',
+                         verbose=True)
     gm.fit(embedded_train)
     pickle.dump(gm, open('clustering_models/gmm_' + str(FLAGS.data_hours), 'wb'))
 
