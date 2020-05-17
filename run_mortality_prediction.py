@@ -639,7 +639,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
 
     # if we're testing, just load the model and save results
     if FLAGS.test_time:
-        y_pred = model.predict(X_test, batch_size=128)                
+        y_pred = model.predict(X_test, batch_size=128) # jw: the original code is flawed here
         for task in all_tasks:
             model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                                  str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']

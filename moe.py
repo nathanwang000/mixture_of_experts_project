@@ -3,6 +3,7 @@ jw: code for comparing different methods of clustering and combining hetergeneou
 in MIMIC iii data for the mortality task
 '''
 from functools import partial
+import copy, glob
 from numpy.random import seed
 seed(1)
 from tensorflow import set_random_seed
@@ -190,6 +191,32 @@ def create_loader(X, y, samp_weights=None, batch_size=100, shuffle=False):
                              batch_size=batch_size, shuffle=shuffle)
     return loader
 
+def create_separate_model(model_args):
+    """ 
+    Create independent models with LSTM layer(s), shared dense layer(s), and sigmoided output. 
+    model_args: a dictionary with the following keys
+        n_layers (int): Number of initial LSTM layers.
+        units (int): Number of units in each LSTM layer.
+        num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
+        dense_shared_layer_size (int): Number of units in each dense layer.
+        input_dim (int): Number of features in the input.
+        output_dim (int): Number of outputs (1 for binary tasks).
+        tasks (list): list of the tasks.
+    Returns: 
+        PyTorch model
+    """
+    experts = nn.ModuleList()
+    for i in range(model_args['tasks']):
+        experts.append(Global_MIMIC_Model(model_args['n_layers'],
+                                          model_args['units'],
+                                          model_args['num_dense_shared_layers'],
+                                          model_args['dense_shared_layer_size'],
+                                          model_args['input_dim'],
+                                          model_args['output_dim']))
+    model = pass
+
+    return model
+
 def create_global_pytorch_model(model_args):
     """ 
     Create a global pytorch model with LSTM layer(s), shared dense layer(s), and sigmoided output. 
@@ -201,7 +228,7 @@ def create_global_pytorch_model(model_args):
         input_dim (int): Number of features in the input.
         output_dim (int): Number of outputs (1 for binary tasks).
     Returns: 
-        PyTorch model, criterion to train, optimizer
+        PyTorch model
     """
     model = Global_MIMIC_Model(model_args['n_layers'],
                                model_args['units'],
@@ -255,7 +282,7 @@ def create_mtl_model(model_args):
         output_dim (int): Number of outputs (1 for binary tasks).
         tasks (list): list of the tasks.
     Returns: 
-        final_model (Keras model): A compiled model with the provided architecture. 
+        final PyTorch model
     """
     model = MTL_MIMIC_Model(model_args["input_dim"],
                             model_args["n_layers"],
@@ -304,6 +331,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         samp_weights: sample weights
     """
 
+    # sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
     model_fname_parts = [model_name, 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
                          str(FLAGS.lstm_layer_size), 'units',
                          str(FLAGS.num_dense_shared_layers), 'dense_shared',
@@ -390,6 +418,15 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         # no samp_weights for val; samp_weights is only for train
         val_loader = create_mtl_loader(X_val, y_val, cohorts2clusters(cohorts_val, all_tasks),
                                        batch_size=batch_size, shuffle=False)
+    elif 'snapshot' in model_name: # todo
+        # 1. get model directory path with models at each epoch for a global model
+        # 2. choose the model at epochs that gives best validation performance for each cohort
+        # as starting point
+        # 3. finetune the resulting model
+        global_model_dir = FLAGS.experiment_name + \
+            '/checkpoints/global_pytorch_' + "_".join(model_fname_parts[1:])
+        for fn in glob.glob(global_model_dir + "/epoch*.m"):
+            pass
     else:
         criterion = sample_weighted_bce_loss
         train_loader = create_loader(X_train, y_train, samp_weights=samp_weights,
@@ -492,6 +529,10 @@ def main():
     # Check that we haven't already run this configuration
     if os.path.exists(fname_keys) and not FLAGS.repeats_allowed:
         model_key = np.load(fname_keys)
+        # todo: change key to include all args
+        # then it should point to a list of names of experiments ran with this setting
+        # then when I do hp search, I can start from here
+        # this would affect ['results', 'models', 'checkpoints']
         current_run = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
                        FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
         if FLAGS.model_type == "MULTITASK":
@@ -553,8 +594,8 @@ def main():
                       all_tasks, fname_keys, fname_results,
                       FLAGS, samp_weights]
 
-    if FLAGS.model_type in ['SEPARATE']:
-        print('please run run_mortality_prediction.py')
+    if FLAGS.model_type == 'SEPARATE':
+        run_pytorch_model('separate_mtl', create_separate_model, *run_model_args)
     elif FLAGS.model_type == 'MOE':
         run_pytorch_model('moe', create_moe_model, *run_model_args)
     elif FLAGS.model_type == 'GLOBAL':

@@ -6,6 +6,13 @@ import numpy as np
 from collections import Iterable
 
 ######################## moe models #######################################
+class Separate_MIMIC_Model(nn.Module):
+
+    '''separate models for Jen's paper in PyTorch'''
+    def __init__(self, experts):
+        super(self.__class__, self).__init__()
+        self.experts = experts
+        
 class Global_MIMIC_Model(nn.Module):
 
     '''global model in Jen's paper in PyTorch'''
