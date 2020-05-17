@@ -23,7 +23,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.externals import joblib
 
 from run_mortality_prediction import load_processed_data, stratified_split, bootstrap_predict
-from models import Global_MIMIC_Model, MoE_MIMIC_Model
+from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model
 from utils import train, get_criterion, get_output
 
 def get_args(): # adapted from run_mortality_prediction.py
@@ -99,17 +99,101 @@ def get_args(): # adapted from run_mortality_prediction.py
     print(args)
     return args
 
-def create_loader(X, y, batch_size=100, shuffle=False):
+def cohorts2clusters(cohorts, all_tasks):
+    res = np.zeros_like(cohorts)
+    for i, task in enumerate(all_tasks):
+        res[cohorts==task] = i
+    return res.astype(int)
+
+def get_output_mtl(net, X, y, clusters, device='cuda'):
+    '''clusters: assignment (cohorts) of shape (n,)'''
+    loader = create_mtl_loader(X, y, clusters, shuffle=False)
+    net.eval()
+    o = []
+    for x, y_z in loader:
+        x = x.to(device)
+        assert y_z.shape[1] in [2, 3], "only y, z, optional sample weight"
+        y, z = y_z[:, 0], y_z[:, 1]
+        
+        # from net(x) of shape (n_tasks, bs, 1) to (bs, 1), where x is (bs, T, d)
+        o_ = torch.stack(net(x))[z.long(), torch.arange(len(x))]
+        o.append(o_.detach().cpu().numpy()) 
+    net.train()        
+    return np.vstack(o)
+
+def sample_weighted_bce_loss(yhat, y):
+    '''
+    yhat: a list of k element with (n, 1) shape in each element
+    y: size of (n,) or (n, 2) or (n, 3)
+       in the first case it is regular bce loss
+       second case the 0th dim is y, 1st dim is sample weights
+    '''
+    w = None # sample_weights
+    if y.shape[1] == 2:
+        y, w = y[:, 0], y[:, 1]
+
+    if w is not None:
+        criterion = nn.BCELoss(reduction='none')
+        l = (criterion(yhat, y) * w).mean()
+    else:
+        criterion = nn.BCELoss()
+        l = criterion(yhat, y)
+    return l
+    
+def mtl_loss(yhat, y_z):
+    '''
+    yhat: a list of k element with (n, 1) shape in each element
+    y_z: size (n, 2) with 0th dim being the output, 1st dim being the cluster
+         or size (n, 3) with the 2nd dim being the sample weights
+    '''
+    w = None # sample_weights
+    if y_z.shape[1] == 3:
+        w = y_z[:, 2]
+    
+    y, z = y_z[:, 0], y_z[:, 1]
+    # from (k, n, 1) to (n, 1)
+    yhat = torch.stack(yhat)[z.long(), torch.arange(y.shape[0])].view(-1)
+
+    if w is not None:
+        criterion = nn.BCELoss(reduction='none')
+        l = (criterion(yhat, y) * w).mean()
+    else:
+        criterion = nn.BCELoss()
+        l = criterion(yhat, y)
+    return l
+
+def create_mtl_loader(X, y, clusters, samp_weights=None, batch_size=100, shuffle=False):
+    '''
+    clusters: cluster assignment of shape (n,)
+    samp_weights: shape (n,) or None
+
+    dataset:
+        from tensor dataset (X, y) to (X, (y, clusters))
+    '''
+    y_z = np.vstack((y, clusters)).T
+    if samp_weights is not None:
+        y_z = np.hstack((y_z, samp_weights.reshape(-1, 1)))
+    loader = data.DataLoader(data.TensorDataset(
+        torch.from_numpy(X).float(), torch.from_numpy(y_z).float()),
+                             batch_size=batch_size, shuffle=shuffle)
+    return loader
+
+def create_loader(X, y, samp_weights=None, batch_size=100, shuffle=False):
+    '''
+    y: shape (n, )
+    samp_weights: shape (n,) or None
+    '''
+    if samp_weights is not None:
+        y = np.vstack((y, samp_weights)).T
     loader = data.DataLoader(data.TensorDataset(
         torch.from_numpy(X).float(), torch.from_numpy(y).float()),
                              batch_size=batch_size, shuffle=shuffle)
     return loader
 
-def create_global_pytorch_model(n_layers, units, num_dense_shared_layers,
-                                dense_shared_layer_size, input_dim, output_dim):
+def create_global_pytorch_model(model_args):
     """ 
     Create a global pytorch model with LSTM layer(s), shared dense layer(s), and sigmoided output. 
-    Args:
+    model_args: a dictionary with the following keys
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
         num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
@@ -119,17 +203,20 @@ def create_global_pytorch_model(n_layers, units, num_dense_shared_layers,
     Returns: 
         PyTorch model, criterion to train, optimizer
     """
-    model = Global_MIMIC_Model(n_layers, units, num_dense_shared_layers,
-                               dense_shared_layer_size, input_dim, output_dim)
+    model = Global_MIMIC_Model(model_args['n_layers'],
+                               model_args['units'],
+                               model_args['num_dense_shared_layers'],
+                               model_args['dense_shared_layer_size'],
+                               model_args['input_dim'],
+                               model_args['output_dim'])
 
     return model
 
-def create_moe_model(input_dim, n_layers, units, num_dense_shared_layers, dense_shared_layer_size,
-                     n_multi_layers, multi_units, output_dim, tasks):
+def create_moe_model(model_args):
     """ 
     Create a moe model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
     and separate sigmoided outputs. 
-    Args: 
+    model_args: a dictionary with the following keys
         input_dim (int): Number of features in the input.
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
@@ -142,368 +229,50 @@ def create_moe_model(input_dim, n_layers, units, num_dense_shared_layers, dense_
     Returns: 
         final_model (Keras model): A compiled model with the provided architecture. 
     """
-    model = MoE_MIMIC_Model(input_dim, n_layers, units, num_dense_shared_layers,
-                            dense_shared_layer_size, n_multi_layers, multi_units, output_dim, tasks)
+    model = MoE_MIMIC_Model(model_args["input_dim"],
+                            model_args["n_layers"],
+                            model_args["units"],
+                            model_args["num_dense_shared_layers"],
+                            model_args["dense_shared_layer_size"],
+                            model_args["n_multi_layers"],
+                            model_args["multi_units"],
+                            model_args["output_dim"],
+                            model_args["tasks"])
     return model
 
-def fit(model, X_train, y_train, epochs, batch_size,
-        savename, validation_data,
-        criterion, optimizer,
-        es_named_criterion=(None, None, None)):
-
-    train_loader = create_loader(X_train, y_train, batch_size=batch_size, shuffle=True)
-    val_loader = create_loader(*validation_data, batch_size=batch_size)
-    
-    net_best, train_log = train(model, train_loader, criterion,
-                                optimizer, epochs,
-                                savename=savename,
-                                es_named_criterion=es_named_criterion,
-                                val_loader=val_loader, verbose=True)
-    return net_best, train_log, train_loader, val_loader
-    
-def run_moe_model(X_train, y_train, cohorts_train,
-                  X_val, y_val, cohorts_val,
-                  X_test, y_test, cohorts_test,
-                  all_tasks, fname_keys, fname_results,
-                  FLAGS):
+def create_mtl_model(model_args):
+    """ 
+    Create a mtl model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
+    and separate sigmoided outputs. 
+    model_args: a dictionary with the following keys
+        input_dim (int): Number of features in the input.
+        n_layers (int): Number of initial LSTM layers.
+        units (int): Number of units in each LSTM layer.
+        num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
+        dense_shared_layer_size (int): Number of units in each dense layer.
+        n_multi_layers (int): Number of task-specific dense layers. 
+        multi_layer_size (int): Number of units in each task-specific dense layer.
+        output_dim (int): Number of outputs (1 for binary tasks).
+        tasks (list): list of the tasks.
+    Returns: 
+        final_model (Keras model): A compiled model with the provided architecture. 
     """
-    Train and evaluate moe model. 
-    Results are saved in FLAGS.experiment_name/results:
-        - The numpy file ending in '_keys' contains the parameters for the model, 
-          and the numpy file ending in '_results' contains the validation AUCs for that 
-          configuration. 
-        - If you run multiple configurations for the same experiment name, 
-          those parameters and results will append to the same files.
-        - At test time, results are saved into the file beginning 'test_auc_on_global_'. 
-          The format of results will depend on whether you use bootstrapping or not. With bootstrapping, 
-          minimum, maximum and average AUCs are saved. Without, just the single AUC on the actual 
-          val / test dataset is saved. 
-    Args:
-        X_train (Numpy array): The X matrix w training examples.
-        y_train (Numpy array): The y matrix w training examples. 
-        cohorts_train (Numpy array): List of cohort membership for each validation example. 
-        X_val (Numpy array): The X matrix w validation examples.
-        y_val (Numpy array): The y matrix w validation examples. 
-        cohorts_val (Numpy array): List of cohort membership for each validation example.
-        X_test (Numpy array): The X matrix w testing examples.
-        y_test (Numpy array): The y matrix w testing examples. 
-        cohorts_test (Numpy array): List of cohort membership for each testing example.
-        all_tasks (Numpy array/list): List of tasks.
-        fname_keys (String): filename where the model parameters will be saved.
-        fname_results (String): filename where the model AUCs will be saved.
-        FLAGS (dictionary): all the arguments.
-    """
-
-    model_fname_parts = ['moe', 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
-                         str(FLAGS.lstm_layer_size), 'units',
-                         str(FLAGS.num_dense_shared_layers), 'dense_shared',
-                         str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
-
-    if FLAGS.test_time:
-        model_path = FLAGS.experiment_name + \
-            '/models/' + "_".join(model_fname_parts) + '.m'
-        model = torch.load(model_path)
-        cohort_aucs = []
-        
-        test_loader = create_loader(X_test, y_test)
-        y_pred = get_output(model, test_loader).ravel()
-
-        # all bootstrapped AUCs
-        for task in all_tasks:
-            if FLAGS.test_bootstrap:
-                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, y_pred,
-                                             return_everything=True,
-                                             test=True,
-                                             num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
-                cohort_aucs.append(np.array(all_aucs))
-            else:
-                y_pred_in_cohort = y_pred[cohorts_test == task]
-                y_true_in_cohort = y_test[cohorts_test == task]
-                auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
-                cohort_aucs.append(auc)
-
-        if FLAGS.test_bootstrap:
-            # Macro AUC
-            cohort_aucs = np.array(cohort_aucs)
-            cohort_aucs = np.concatenate(
-                (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
-
-            # Micro AUC
-            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', y_pred,
-                                               return_everything=True, test=True, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
-            cohort_aucs = np.concatenate(
-                (cohort_aucs, np.array([all_micro_aucs])))
-
-        else:
-            # Macro AUC
-            macro_auc = np.mean(cohort_aucs)
-            cohort_aucs.append(macro_auc)
-
-            # Micro AUC
-            micro_auc = roc_auc_score(y_test, y_pred)
-            cohort_aucs.append(micro_auc)
-
-        suffix = 'single' if not FLAGS.test_bootstrap else 'all'
-        test_auc_fname = 'test_auc_on_moe_' + suffix
-        np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs)
-        return
-
-    model = create_moe_model(X_train.shape[2], FLAGS.num_lstm_layers,
-                             FLAGS.lstm_layer_size, FLAGS.num_dense_shared_layers,
-                             FLAGS.dense_shared_layer_size,
-                             FLAGS.num_multi_layers, FLAGS.multi_layer_size, output_dim=1,
-                             tasks=all_tasks)
-    
-    model = model.cuda()
-   
-    model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts)
-
-    # sample_weight=sample_weights, # todo: add to loss
-    criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    get_c = partial(get_criterion, criterion=criterion)
-    model, train_log, train_loader, val_loader = fit(model, X_train, y_train, FLAGS.epochs,
-                                                     batch_size=100,
-                                                     savename=model_dir,
-                                                     validation_data=(X_val, y_val),
-                                                     criterion=criterion,
-                                                     es_named_criterion=('loss', get_c, True), 
-                                                     optimizer=optimizer)
-    joblib.dump(train_log, '{}/log'.format(model_dir))
-    torch.save(model, FLAGS.experiment_name + '/models/' +
-               "_".join(model_fname_parts) + '.m')
-
-    ############### evaluation ###########
-    cohort_aucs = []
-    y_pred = get_output(model, val_loader).ravel()
-    for task in all_tasks:
-        print('MoE Model AUC on ', task, ':')
-        if FLAGS.no_val_bootstrap:
-            try:
-                auc = roc_auc_score(
-                    y_val[cohorts_val == task], y_pred[cohorts_val == task])
-            except:
-                auc = np.nan
-            cohort_aucs.append(auc)
-        else:
-            min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
-            cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
-            print ("(min/max/average): ")
-
-        print(cohort_aucs[-1])
-
-    cohort_aucs = np.array(cohort_aucs)
-
-    # Add Macro AUC
-    cohort_aucs = np.concatenate(
-        (cohort_aucs, np.expand_dims(np.nanmean(cohort_aucs, axis=0), 0)))
-
-    # Add Micro AUC
-    if FLAGS.no_val_bootstrap:
-        micro_auc = roc_auc_score(y_val, y_pred)
-        cohort_aucs = np.concatenate((cohort_aucs, np.array([micro_auc])))
-    else:
-        min_auc, max_auc, avg_auc = bootstrap_predict(
-            X_val, y_val, cohorts_val, 'all', y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
-        cohort_aucs = np.concatenate(
-            (cohort_aucs, np.array([[min_auc, max_auc, avg_auc]])))
-
-    # Save Results
-    current_run_params = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                          FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
-    try:
-        print('appending results.')
-        global_model_results = np.load(fname_results)
-        global_model_key = np.load(fname_keys)
-        global_model_results = np.concatenate(
-            (global_model_results, np.expand_dims(cohort_aucs, 0)))
-        global_model_key = np.concatenate(
-            (global_model_key, np.array([current_run_params])))
-
-    except Exception as e:
-        global_model_results = np.expand_dims(cohort_aucs, 0)
-        global_model_key = np.array([current_run_params])
-
-    np.save(fname_results, global_model_results)
-    np.save(fname_keys, global_model_key)
-    print('Saved moe results.')
-
-def run_global_pytorch_model(X_train, y_train, cohorts_train,
-                  X_val, y_val, cohorts_val,
-                  X_test, y_test, cohorts_test,
-                  all_tasks, fname_keys, fname_results,
-                  FLAGS):
-    """
-    Train and evaluate pytorch global model. 
-    Results are saved in FLAGS.experiment_name/results:
-        - The numpy file ending in '_keys' contains the parameters for the model, 
-          and the numpy file ending in '_results' contains the validation AUCs for that 
-          configuration. 
-        - If you run multiple configurations for the same experiment name, 
-          those parameters and results will append to the same files.
-        - At test time, results are saved into the file beginning 'test_auc_on_global_'. 
-          The format of results will depend on whether you use bootstrapping or not. With bootstrapping, 
-          minimum, maximum and average AUCs are saved. Without, just the single AUC on the actual 
-          val / test dataset is saved. 
-    Args:
-        X_train (Numpy array): The X matrix w training examples.
-        y_train (Numpy array): The y matrix w training examples. 
-        cohorts_train (Numpy array): List of cohort membership for each validation example. 
-        X_val (Numpy array): The X matrix w validation examples.
-        y_val (Numpy array): The y matrix w validation examples. 
-        cohorts_val (Numpy array): List of cohort membership for each validation example.
-        X_test (Numpy array): The X matrix w testing examples.
-        y_test (Numpy array): The y matrix w testing examples. 
-        cohorts_test (Numpy array): List of cohort membership for each testing example.
-        all_tasks (Numpy array/list): List of tasks.
-        fname_keys (String): filename where the model parameters will be saved.
-        fname_results (String): filename where the model AUCs will be saved.
-        FLAGS (dictionary): all the arguments.
-    """
-
-    model_fname_parts = ['global_pytorch', 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
-                         str(FLAGS.lstm_layer_size), 'units',
-                         str(FLAGS.num_dense_shared_layers), 'dense_shared',
-                         str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
-
-    if FLAGS.test_time:
-        model_path = FLAGS.experiment_name + \
-            '/models/' + "_".join(model_fname_parts) + '.m'
-        model = torch.load(model_path)
-        cohort_aucs = []
-        
-        test_loader = create_loader(X_test, y_test)
-        y_pred = get_output(model, test_loader).ravel()
-
-        # all bootstrapped AUCs
-        for task in all_tasks:
-            if FLAGS.test_bootstrap:
-                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, y_pred,
-                                             return_everything=True,
-                                             test=True,
-                                             num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
-                cohort_aucs.append(np.array(all_aucs))
-            else:
-                y_pred_in_cohort = y_pred[cohorts_test == task]
-                y_true_in_cohort = y_test[cohorts_test == task]
-                auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
-                cohort_aucs.append(auc)
-
-        if FLAGS.test_bootstrap:
-            # Macro AUC
-            cohort_aucs = np.array(cohort_aucs)
-            cohort_aucs = np.concatenate(
-                (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
-
-            # Micro AUC
-            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', y_pred,
-                                               return_everything=True, test=True, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
-            cohort_aucs = np.concatenate(
-                (cohort_aucs, np.array([all_micro_aucs])))
-
-        else:
-            # Macro AUC
-            macro_auc = np.mean(cohort_aucs)
-            cohort_aucs.append(macro_auc)
-
-            # Micro AUC
-            micro_auc = roc_auc_score(y_test, y_pred)
-            cohort_aucs.append(micro_auc)
-
-        suffix = 'single' if not FLAGS.test_bootstrap else 'all'
-        test_auc_fname = 'test_auc_on_global_pytorch_' + suffix
-        np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs)
-        return
-
-    model = create_global_pytorch_model(FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                                        FLAGS.num_dense_shared_layers,
-                                        FLAGS.dense_shared_layer_size,
-                                        X_train.shape[2], 1)
-    model = model.cuda()
-   
-    model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts)
-
-    # sample_weight=sample_weights, # todo: add to loss
-    criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    get_c = partial(get_criterion, criterion=criterion)
-    model, train_log, train_loader, val_loader = fit(model, X_train, y_train, FLAGS.epochs,
-                                                     batch_size=100,
-                                                     savename=model_dir,
-                                                     validation_data=(X_val, y_val),
-                                                     criterion=criterion,
-                                                     es_named_criterion=('loss', get_c, True), 
-                                                     optimizer=optimizer)
-    joblib.dump(train_log, '{}/log'.format(model_dir))
-    torch.save(model, FLAGS.experiment_name + '/models/' +
-               "_".join(model_fname_parts) + '.m')
-
-    ############### evaluation ###########
-    cohort_aucs = []
-    y_pred = get_output(model, val_loader).ravel()
-    for task in all_tasks:
-        print('Global pytorch Model AUC on ', task, ':')
-        if FLAGS.no_val_bootstrap:
-            try:
-                auc = roc_auc_score(
-                    y_val[cohorts_val == task], y_pred[cohorts_val == task])
-            except:
-                auc = np.nan
-            cohort_aucs.append(auc)
-        else:
-            min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
-            cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
-            print ("(min/max/average): ")
-
-        print(cohort_aucs[-1])
-
-    cohort_aucs = np.array(cohort_aucs)
-
-    # Add Macro AUC
-    cohort_aucs = np.concatenate(
-        (cohort_aucs, np.expand_dims(np.nanmean(cohort_aucs, axis=0), 0)))
-
-    # Add Micro AUC
-    if FLAGS.no_val_bootstrap:
-        micro_auc = roc_auc_score(y_val, y_pred)
-        cohort_aucs = np.concatenate((cohort_aucs, np.array([micro_auc])))
-    else:
-        min_auc, max_auc, avg_auc = bootstrap_predict(
-            X_val, y_val, cohorts_val, 'all', y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
-        cohort_aucs = np.concatenate(
-            (cohort_aucs, np.array([[min_auc, max_auc, avg_auc]])))
-
-    # Save Results
-    current_run_params = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                          FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
-    try:
-        print('appending results.')
-        global_model_results = np.load(fname_results)
-        global_model_key = np.load(fname_keys)
-        global_model_results = np.concatenate(
-            (global_model_results, np.expand_dims(cohort_aucs, 0)))
-        global_model_key = np.concatenate(
-            (global_model_key, np.array([current_run_params])))
-
-    except Exception as e:
-        global_model_results = np.expand_dims(cohort_aucs, 0)
-        global_model_key = np.array([current_run_params])
-
-    np.save(fname_results, global_model_results)
-    np.save(fname_keys, global_model_key)
-    print('Saved global pytorch results.')
+    model = MTL_MIMIC_Model(model_args["input_dim"],
+                            model_args["n_layers"],
+                            model_args["units"],
+                            model_args["num_dense_shared_layers"],
+                            model_args["dense_shared_layer_size"],
+                            model_args["n_multi_layers"],
+                            model_args["multi_units"],
+                            model_args["output_dim"],
+                            model_args["tasks"])
+    return model
 
 def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
                       all_tasks, fname_keys, fname_results,
-                      FLAGS):
+                      FLAGS, samp_weights):
     """
     Train and evaluate pytorch models. 
     Results are saved in FLAGS.experiment_name/results:
@@ -512,7 +281,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
           configuration. 
         - If you run multiple configurations for the same experiment name, 
           those parameters and results will append to the same files.
-        - At test time, results are saved into the file beginning 'test_auc_on_global_'. 
+        - At test time, results are saved into the file beginning 'test_auc_on_{model_name}'. 
           The format of results will depend on whether you use bootstrapping or not. With bootstrapping, 
           minimum, maximum and average AUCs are saved. Without, just the single AUC on the actual 
           val / test dataset is saved. 
@@ -532,6 +301,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         fname_keys (String): filename where the model parameters will be saved.
         fname_results (String): filename where the model AUCs will be saved.
         FLAGS (dictionary): all the arguments.
+        samp_weights: sample weights
     """
 
     model_fname_parts = [model_name, 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
@@ -546,7 +316,11 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         cohort_aucs = []
         
         test_loader = create_loader(X_test, y_test)
-        y_pred = get_output(model, test_loader).ravel()
+        if 'mtl' in model_name:
+            y_pred = get_output_mtl(model, X_test, y_test,
+                                    cohorts2clusters(cohorts_test, all_tasks)).ravel()  
+        else:
+            y_pred = get_output(model, test_loader).ravel()
 
         # all bootstrapped AUCs
         for task in all_tasks:
@@ -584,7 +358,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
             cohort_aucs.append(micro_auc)
 
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
-        test_auc_fname = 'test_auc_on_mtl_pytorch_' + suffix
+        test_auc_fname = 'test_auc_on_{}_'.format(model_name) + suffix
         np.save(FLAGS.experiment_name + '/results/' +
                 test_auc_fname, cohort_aucs)
         return
@@ -607,24 +381,41 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     model_dir = FLAGS.experiment_name + \
         '/checkpoints/' + "_".join(model_fname_parts)
 
-    # sample_weight=sample_weights, # todo: add to loss
-    criterion = nn.BCELoss()
+    batch_size = 100
+    if 'mtl' in model_name:
+        criterion = mtl_loss
+        train_loader = create_mtl_loader(X_train, y_train, cohorts2clusters(cohorts_train, all_tasks),
+                                         samp_weights=samp_weights, 
+                                         batch_size=batch_size, shuffle=True)
+        # no samp_weights for val; samp_weights is only for train
+        val_loader = create_mtl_loader(X_val, y_val, cohorts2clusters(cohorts_val, all_tasks),
+                                       batch_size=batch_size, shuffle=False)
+    else:
+        criterion = sample_weighted_bce_loss
+        train_loader = create_loader(X_train, y_train, samp_weights=samp_weights,
+                                     batch_size=batch_size, shuffle=True)
+        # no samp_weights for val; samp_weights is only for train        
+        val_loader = create_loader(X_val, y_val, batch_size=batch_size, shuffle=False)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     get_c = partial(get_criterion, criterion=criterion)
-    model, train_log, train_loader, val_loader = fit(model, X_train, y_train, FLAGS.epochs,
-                                                     batch_size=100,
-                                                     savename=model_dir,
-                                                     validation_data=(X_val, y_val),
-                                                     criterion=criterion,
-                                                     es_named_criterion=('loss', get_c, True), 
-                                                     optimizer=optimizer)
+    model, train_log = train(model, train_loader, criterion, optimizer, FLAGS.epochs,
+                             savename = model_dir,
+                             val_loader = val_loader,
+                             es_named_criterion = ('loss', get_c, True),
+                             verbose=True)
+    
     joblib.dump(train_log, '{}/log'.format(model_dir))
     torch.save(model, FLAGS.experiment_name + '/models/' +
                "_".join(model_fname_parts) + '.m')
 
     ############### evaluation ###########
     cohort_aucs = []
-    y_pred = get_output(model, val_loader).ravel()
+    if 'mtl' in model_name:
+        y_pred = get_output_mtl(model, X_val, y_val, cohorts2clusters(cohorts_val, all_tasks)).ravel()
+    else:
+        y_pred = get_output(model, val_loader).ravel()
+        
     for task in all_tasks:
         print('{} Model AUC on '.format(model_name), task, ':')
         if FLAGS.no_val_bootstrap:
@@ -677,9 +468,9 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     np.save(fname_results, global_model_results)
     np.save(fname_keys, global_model_key)
     print('Saved {} results.'.format(model_name))
-    
-if __name__ == "__main__":
 
+def main():
+    '''main function'''
     FLAGS = get_args()
 
     # Limit GPU usage.
@@ -760,16 +551,18 @@ if __name__ == "__main__":
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
                       all_tasks, fname_keys, fname_results,
-                      FLAGS]
+                      FLAGS, samp_weights]
 
     if FLAGS.model_type in ['SEPARATE']:
         print('please run run_mortality_prediction.py')
     elif FLAGS.model_type == 'MOE':
-        # run_moe_model(*run_model_args)
         run_pytorch_model('moe', create_moe_model, *run_model_args)
     elif FLAGS.model_type == 'GLOBAL':
-        # run_global_pytorch_model(*run_model_args)
         run_pytorch_model('global_pytorch', create_global_pytorch_model, *run_model_args)        
     elif FLAGS.model_type == 'MULTITASK':
         run_pytorch_model('mtl_pytorch', create_mtl_model, *run_model_args)
+
+if __name__ == "__main__":
+    main()
+
 

@@ -940,9 +940,11 @@ def run_multitask_model(X_train, y_train, cohorts_train,
         model_path = FLAGS.experiment_name + \
             '/models/' + "_".join(model_fname_parts)
         model = load_model(model_path)
-        y_pred = model.predict(X_test)
-        # jw: not sure why this is wrong, could be keras changed version? but add the following is ok
-        y_pred = np.hstack(y_pred)
+        # y_pred = model.predict(X_test)
+        # jw: should add below for better code; if use above then uncomment the last line
+        # y_pred = np.hstack(y_pred)        
+        y_pred = get_correct_task_mtl_outputs(
+            model.predict(X_test), cohorts_test, all_tasks)
         
         cohort_aucs = []
         for task in all_tasks:
@@ -953,7 +955,10 @@ def run_multitask_model(X_train, y_train, cohorts_train,
                                              num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
                 cohort_aucs.append(np.array(all_aucs))
             else:
-                y_pred_in_cohort = y_pred[cohorts_test == task, cohort_key[task]]
+                # jw: changed to work with get_correct
+                # y_pred_in_cohort = y_pred[cohorts_test == task, cohort_key[task]]
+                y_pred_in_cohort = y_pred[cohorts_test == task]
+                
                 y_true_in_cohort = y_test[cohorts_test == task]
                 auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
                 cohort_aucs.append(auc)
@@ -971,8 +976,11 @@ def run_multitask_model(X_train, y_train, cohorts_train,
         else:
             macro_auc = np.mean(cohort_aucs)
             cohort_aucs.append(macro_auc)
-            micro_auc = roc_auc_score(y_test, y_pred[np.arange(len(y_test)), [
-                                      cohort_key[c] for c in cohorts_test]])
+            # jw: changed to work with get_correct
+            # micro_auc = roc_auc_score(y_test, y_pred[np.arange(len(y_test)), [
+            #                           cohort_key[c] for c in cohorts_test]])
+            micro_auc = roc_auc_score(y_test, y_pred)
+            
             cohort_aucs.append(micro_auc)
 
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
