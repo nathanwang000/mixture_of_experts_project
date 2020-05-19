@@ -14,6 +14,11 @@ import matplotlib.pyplot as plt
 from models import MoO, AdaptiveGate, MLP
 import torch
 from torch import nn
+from torch.utils.data import DataLoader, Subset
+
+def get_subset_batch(dataset, indices):
+    '''return a batch of data given indices'''
+    return next(iter(DataLoader(Subset(dataset, indices), batch_size=len(indices))))
 
 def random_string(N=5):
     return ''.join(random.choice(string.ascii_uppercase + string.digits)
@@ -225,7 +230,8 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
 
         # early stopping
         stop = False
-        if val_loader and es_named_criterion[1] is not None:
+        do_es = (val_loader and es_named_criterion[1] is not None)
+        if do_es:
             update_best_model, stop, val_name_value = es()
             if update_best_model:
                 net_best = copy.deepcopy(net)
@@ -234,14 +240,16 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
         if verbose and (stop or i % report_every == 0):
             train_report = dict((name, f(net, loader)) for name, f in report_criteria)
             train_report['loss'] = np.mean(losses[-len(loader):])
-            print(('epoch {:>3}: ' + ' '.join('{} {:.3f}'.format(
-                name, val
-            ) for name, val in train_report.items())).\
-                  format(i) +
-                  (" val_{} {:.3f}".format(*val_name_value) if val_loader else "") +
+            
+            # print out report
+            print('epoch {:>3}: '.format(i) +
+                  ' '.join('{} {:.3f}'.format(
+                      name, val
+                  ) for name, val in train_report.items()) +
+                  (" val_{} {:.3f}".format(*val_name_value) if do_es else "") +
                   (" early stopping..." if stop else ""))
 
-            train_report.update({'epoch': i})
+            # update log
             if val_loader:
                 val_report = dict(('val_' + name, f(net, val_loader))\
                                   for name, f in report_criteria)
@@ -250,7 +258,8 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
                 test_report = dict(('test_' + name, f(net, test_loader))\
                                   for name, f in report_criteria)
                 train_report.update(test_report)
-
+            
+            train_report.update({'epoch': i})
             train_log.append(train_report)
 
         if stop:

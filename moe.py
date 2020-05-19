@@ -14,7 +14,7 @@ from torch import nn
 import torch.utils.data as data
 torch.set_num_threads(1)
 
-import os
+import os, tqdm
 import sys
 import argparse
 import numpy as np
@@ -24,7 +24,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.externals import joblib
 
 from run_mortality_prediction import load_processed_data, stratified_split, bootstrap_predict
-from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model
+from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model, Separate_MIMIC_Model
 from utils import train, get_criterion, get_output
 
 def get_args(): # adapted from run_mortality_prediction.py
@@ -39,9 +39,11 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--gap_time", type=int, default=12, \
                         help="The gap between data and when we are making predictions. Type: int. Default: 12.")
     parser.add_argument("--model_type", type=str, default='MOE',
-                        choices=['GLOBAL', 'MULTITASK', 'SEPARATE', 'MOE'],
+                        choices=['GLOBAL', 'MULTITASK', 'SEPARATE', 'MOE', "SNAPSHOT", "MTL_PT"],
                         help="indicating \
         which type of model to run. Type: String.")
+    parser.add_argument("--pmt", action="store_true", default=False, help="This is an indicator \
+        flag to remove noise in input by using a global model weighted by permutation importance")
     parser.add_argument("--num_lstm_layers", type=int, default=1,
                         help="Number of beginning LSTM layers, applies to all model types. \
         Type: int. Default: 1.")
@@ -122,15 +124,52 @@ def get_output_mtl(net, X, y, clusters, device='cuda'):
     net.train()        
     return np.vstack(o)
 
+def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
+    ''' 
+    X: numpy array of size (n, T, d)
+    y: numpy array of size (n,)
+    net: pytorch model
+    return feature importance array
+    '''
+    n, T, d = X_orig.shape
+    if bs == None or bs >= n:
+        bs = n
+        X, y = X_orig, y_orig
+        y_pred_orig = get_output(net, create_loader(X, y))        
+
+    fps = 0
+    for _ in range(n_pmt):
+
+        if bs != n: # small sample to boost speed
+            indices = np.random.choice(len(X_orig), bs)
+            X, y = X_orig[indices], y_orig[indices]
+            y_pred_orig = get_output(net, create_loader(X, y))
+        
+        fp = [] # todo: currently doesn't consider correlation
+        indices = np.random.choice(len(X), bs)
+        X_ = X[indices]
+        for i in tqdm.tqdm(range(d)):
+            X_p = copy.deepcopy(X)
+            X_p[:, :, i] = X_[:, :, i] # todo: temporal dimension assumes to be correlated
+            y_pred_pmt = get_output(net, create_loader(X_p, y))
+            fimp = y_pred_orig - y_pred_pmt # (bs, 1); no softmax b/c already after sigmoid
+            fp.append(fimp.ravel()) # fp: length d list of (bs,)
+
+        fp = np.vstack(fp).T # (bs, d)
+        fps += np.abs(fp) # todo: play with this # fps += fp
+
+    return np.abs(fps / n_pmt).mean(0) # (d,)
+
+###### losses
 def sample_weighted_bce_loss(yhat, y):
     '''
     yhat: a list of k element with (n, 1) shape in each element
-    y: size of (n,) or (n, 2) or (n, 3)
+    y: size of (n,) or (n, 2)
        in the first case it is regular bce loss
        second case the 0th dim is y, 1st dim is sample weights
     '''
     w = None # sample_weights
-    if y.shape[1] == 2:
+    if len(y.shape) > 1:
         y, w = y[:, 0], y[:, 1]
 
     if w is not None:
@@ -163,10 +202,12 @@ def mtl_loss(yhat, y_z):
         l = criterion(yhat, y)
     return l
 
+###### loaders
 def create_mtl_loader(X, y, clusters, samp_weights=None, batch_size=100, shuffle=False):
     '''
     clusters: cluster assignment of shape (n,)
     samp_weights: shape (n,) or None
+    pmt: scales input by permutation importance or not
 
     dataset:
         from tensor dataset (X, y) to (X, (y, clusters))
@@ -191,6 +232,53 @@ def create_loader(X, y, samp_weights=None, batch_size=100, shuffle=False):
                              batch_size=batch_size, shuffle=shuffle)
     return loader
 
+###### models
+def create_snapshot_model(model_args):
+    """ 
+    Create snapshot models with LSTM layer(s), shared dense layer(s), and sigmoided output. 
+    model_args: a dictionary with the following keys
+        n_layers (int): Number of initial LSTM layers.
+        units (int): Number of units in each LSTM layer.
+        num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
+        dense_shared_layer_size (int): Number of units in each dense layer.
+        input_dim (int): Number of features in the input.
+        output_dim (int): Number of outputs (1 for binary tasks).
+        tasks (list): list of the tasks.
+        global_model_dir (str): directory in which each epoch's performance is saved
+        X_val: validation X (n, T, d)
+        y_val: validation y (n,)
+        cohorts_val: cluster assignment val (n,)
+        FLAGS: arguments in this file
+    Returns: 
+        PyTorch model
+    """
+    # similar to create_separate_model but with experts pretrained
+    # 1. get model directory path with models at each epoch for a global model
+    # 2. choose the model at epochs that gives best validation performance for each cohort
+    # as starting point
+    # 3. finetune the resulting model
+    tasks = model_args['tasks']
+    X_val, y_val, cohorts_val = model_args['X_val'], model_args['y_val'], model_args['cohorts_val']
+    val_loader = create_loader(X_val, y_val, batch_size=100, shuffle=False)
+
+    experts_auc = [(None, 0) for _ in range(len(tasks))] # init to (n model, 0 auc)
+    for fn in glob.glob(model_args['global_model_dir'] + "/epoch*.m"):
+        net = torch.load(fn)
+        y_pred = get_output(net, val_loader).ravel()
+        for i, task in enumerate(tasks):
+            x_val_in_task = X_val[cohorts_val == task]
+            y_val_in_task = y_val[cohorts_val == task]
+            y_pred_in_task = y_pred[cohorts_val == task]
+            auc = roc_auc_score(y_val_in_task, y_pred_in_task)
+            if auc > experts_auc[i][1]:
+                experts_auc[i] = (net, auc)
+
+    experts = nn.ModuleList([expert for expert, auc in experts_auc])
+    # currently is inefficient by running all models for all tasks
+    # I should be able to just run the required expert
+    model = Separate_MIMIC_Model(experts)
+    return model
+
 def create_separate_model(model_args):
     """ 
     Create independent models with LSTM layer(s), shared dense layer(s), and sigmoided output. 
@@ -206,15 +294,17 @@ def create_separate_model(model_args):
         PyTorch model
     """
     experts = nn.ModuleList()
-    for i in range(model_args['tasks']):
+    for i in range(len(model_args['tasks'])):
         experts.append(Global_MIMIC_Model(model_args['n_layers'],
                                           model_args['units'],
                                           model_args['num_dense_shared_layers'],
                                           model_args['dense_shared_layer_size'],
                                           model_args['input_dim'],
                                           model_args['output_dim']))
-    model = pass
 
+    # currently is inefficient by running all models for all tasks
+    # I should be able to just run the required expert
+    model = Separate_MIMIC_Model(experts)
     return model
 
 def create_global_pytorch_model(model_args):
@@ -295,6 +385,52 @@ def create_mtl_model(model_args):
                             model_args["tasks"])
     return model
 
+def create_mtl_pt_model(model_args):
+    """ 
+    Create a mtl model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
+    and separate sigmoided outputs. 
+    model_args: a dictionary with the following keys
+        input_dim (int): Number of features in the input.
+        n_layers (int): Number of initial LSTM layers.
+        units (int): Number of units in each LSTM layer.
+        num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
+        dense_shared_layer_size (int): Number of units in each dense layer.
+        n_multi_layers (int): Number of task-specific dense layers. 
+        multi_layer_size (int): Number of units in each task-specific dense layer.
+        output_dim (int): Number of outputs (1 for binary tasks).
+        tasks (list): list of the tasks.
+        global_model_fn (str): global best model fn
+    Returns: 
+        final PyTorch model
+    """
+    global_model = torch.load(model_args['global_model_fn'])
+    model = MTL_MIMIC_Model(model_args["input_dim"],
+                            model_args["n_layers"],
+                            model_args["units"],
+                            model_args["num_dense_shared_layers"],
+                            model_args["dense_shared_layer_size"],
+                            model_args["n_multi_layers"],
+                            model_args["multi_units"],
+                            model_args["output_dim"],
+                            model_args["tasks"],
+                            lstm = global_model.lstm,
+                            shared = global_model.rest[:-2],
+    )
+    return model
+
+###### run
+def get_model_fname_parts(model_name, FLAGS):
+    # mark change later        
+    model_fname_parts = [model_name, 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
+                         str(FLAGS.lstm_layer_size), 'units',
+                         str(FLAGS.num_dense_shared_layers), 'dense_shared',
+                         str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
+    if FLAGS.sample_weights:
+        model_fname_parts.append("sw")
+    if FLAGS.pmt:
+        model_fname_parts.append("pmt")
+    return model_fname_parts
+
 def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
@@ -330,23 +466,19 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         FLAGS (dictionary): all the arguments.
         samp_weights: sample weights
     """
-
-    # sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
-    model_fname_parts = [model_name, 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
-                         str(FLAGS.lstm_layer_size), 'units',
-                         str(FLAGS.num_dense_shared_layers), 'dense_shared',
-                         str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
-
+    model_fname_parts = get_model_fname_parts(model_name, FLAGS)
     if FLAGS.test_time:
         model_path = FLAGS.experiment_name + \
-            '/models/' + "_".join(model_fname_parts) + '.m'
+            '/models/' + "_".join(model_fname_parts) + '.m' # mark for future change
         model = torch.load(model_path)
         cohort_aucs = []
         
         test_loader = create_loader(X_test, y_test)
         if 'mtl' in model_name:
             y_pred = get_output_mtl(model, X_test, y_test,
-                                    cohorts2clusters(cohorts_test, all_tasks)).ravel()  
+                                    cohorts2clusters(cohorts_test, all_tasks)).ravel()
+        elif 'pmt' in model_name:
+            pass
         else:
             y_pred = get_output(model, test_loader).ravel()
 
@@ -385,11 +517,33 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
             micro_auc = roc_auc_score(y_test, y_pred)
             cohort_aucs.append(micro_auc)
 
-        suffix = 'single' if not FLAGS.test_bootstrap else 'all'
-        test_auc_fname = 'test_auc_on_{}_'.format(model_name) + suffix
+        # mark for future change        
+        suffix = ""
+        if FLAGS.sample_weights:
+            suffix += "_sw"
+        if FLAGS.pmt:
+            suffix += "_pmt"
+        suffix += '_single' if not FLAGS.test_bootstrap else '_all'            
+        test_auc_fname = 'test_auc_on_{}'.format(model_name) + suffix
         np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs)
+                test_auc_fname, cohort_aucs) 
         return
+
+    batch_size = 100
+    if 'mtl' in model_name:
+        criterion = mtl_loss
+        train_loader = create_mtl_loader(X_train, y_train, cohorts2clusters(cohorts_train, all_tasks),
+                                         samp_weights=samp_weights,
+                                         batch_size=batch_size, shuffle=True)
+        # no samp_weights for val; samp_weights is only for train
+        val_loader = create_mtl_loader(X_val, y_val, cohorts2clusters(cohorts_val, all_tasks),
+                                       batch_size=batch_size, shuffle=False)
+    else:
+        criterion = sample_weighted_bce_loss
+        train_loader = create_loader(X_train, y_train, samp_weights=samp_weights,
+                                     batch_size=batch_size, shuffle=True)
+        # no samp_weights for val; samp_weights is only for train        
+        val_loader = create_loader(X_val, y_val, batch_size=batch_size, shuffle=False)
 
     model_args = {
         'n_layers': FLAGS.num_lstm_layers,
@@ -401,38 +555,23 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         'n_multi_layers': FLAGS.num_multi_layers, # mtl layers
         'multi_units': FLAGS.multi_layer_size,
         'tasks': all_tasks,
+        # mark for change
+        'global_model_dir': FLAGS.experiment_name + \
+                            '/checkpoints/global_pytorch_' + "_".join(model_fname_parts[1:]),
+        # mark for change        
+        'global_model_fn': FLAGS.experiment_name + \
+                            '/models/global_pytorch_' + "_".join(model_fname_parts[1:]) + ".m",
+        'X_val': X_val,
+        'y_val': y_val,
+        'cohorts_val': cohorts_val,
+        'FLAGS': FLAGS,
     }
 
     model = create_model(model_args)
     model = model.cuda()
    
     model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts)
-
-    batch_size = 100
-    if 'mtl' in model_name:
-        criterion = mtl_loss
-        train_loader = create_mtl_loader(X_train, y_train, cohorts2clusters(cohorts_train, all_tasks),
-                                         samp_weights=samp_weights, 
-                                         batch_size=batch_size, shuffle=True)
-        # no samp_weights for val; samp_weights is only for train
-        val_loader = create_mtl_loader(X_val, y_val, cohorts2clusters(cohorts_val, all_tasks),
-                                       batch_size=batch_size, shuffle=False)
-    elif 'snapshot' in model_name: # todo
-        # 1. get model directory path with models at each epoch for a global model
-        # 2. choose the model at epochs that gives best validation performance for each cohort
-        # as starting point
-        # 3. finetune the resulting model
-        global_model_dir = FLAGS.experiment_name + \
-            '/checkpoints/global_pytorch_' + "_".join(model_fname_parts[1:])
-        for fn in glob.glob(global_model_dir + "/epoch*.m"):
-            pass
-    else:
-        criterion = sample_weighted_bce_loss
-        train_loader = create_loader(X_train, y_train, samp_weights=samp_weights,
-                                     batch_size=batch_size, shuffle=True)
-        # no samp_weights for val; samp_weights is only for train        
-        val_loader = create_loader(X_val, y_val, batch_size=batch_size, shuffle=False)
+        '/checkpoints/' + "_".join(model_fname_parts) # mark for change later
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     get_c = partial(get_criterion, criterion=criterion)
@@ -444,12 +583,13 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     
     joblib.dump(train_log, '{}/log'.format(model_dir))
     torch.save(model, FLAGS.experiment_name + '/models/' +
-               "_".join(model_fname_parts) + '.m')
+               "_".join(model_fname_parts) + '.m') # mark for change
 
     ############### evaluation ###########
     cohort_aucs = []
     if 'mtl' in model_name:
-        y_pred = get_output_mtl(model, X_val, y_val, cohorts2clusters(cohorts_val, all_tasks)).ravel()
+        y_pred = get_output_mtl(model, X_val, y_val,
+                                cohorts2clusters(cohorts_val, all_tasks)).ravel()
     else:
         y_pred = get_output(model, val_loader).ravel()
         
@@ -502,8 +642,8 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         global_model_results = np.expand_dims(cohort_aucs, 0)
         global_model_key = np.array([current_run_params])
 
-    np.save(fname_results, global_model_results)
-    np.save(fname_keys, global_model_key)
+    np.save(fname_results, global_model_results) # mark for change
+    np.save(fname_keys, global_model_key)  # mark for change
     print('Saved {} results.'.format(model_name))
 
 def main():
@@ -529,7 +669,7 @@ def main():
     # Check that we haven't already run this configuration
     if os.path.exists(fname_keys) and not FLAGS.repeats_allowed:
         model_key = np.load(fname_keys)
-        # todo: change key to include all args
+        # todo: change key to include all args {("mtl", selected_frozen_args) }
         # then it should point to a list of names of experiments ran with this setting
         # then when I do hp search, I can start from here
         # this would affect ['results', 'models', 'checkpoints']
@@ -573,7 +713,8 @@ def main():
 
     # Sample Weights
     task_weights = dict()
-    all_tasks = np.unique(cohorts_train)
+    all_tasks = sorted(np.unique(cohorts_train))
+
     for cohort in all_tasks:
         num_in_cohort = len(np.where(cohorts_train == cohort)[0])
         print("Number of people in cohort " +
@@ -583,9 +724,35 @@ def main():
     if FLAGS.sample_weights:
         samp_weights = np.array([task_weights[cohort]
                                  for cohort in cohorts_train])
-
     else:
         samp_weights = None
+
+    # Permutation importance
+    if FLAGS.pmt:
+        # mark for change
+        model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] # the last is pmt
+        global_model_fn = FLAGS.experiment_name + \
+            '/models/global_pytorch_' + "_".join(model_fname_parts) + ".m"
+        net = torch.load(global_model_fn)
+
+        # if True: # this is used to investigate how stable bs is for pmt_importance todo: delete
+        #     for bs in [100, X_train.shape[0], 500, 2000, 5000, 10000]:
+        #         feature_importance_fn = 'feature_importance{}.pkl'.format(bs)
+        #         feature_importance = pmt_importance(net, X_train, y_train, bs=bs)
+        #         joblib.dump(feature_importance, feature_importance_fn)
+            
+        feature_importance_fn = 'feature_importance_bs1000.pkl'
+        if os.path.exists(feature_importance_fn):
+            feature_importance = joblib.load(feature_importance_fn)
+        else:
+            feature_importance = pmt_importance(net, X_train, y_train, bs=1000)
+            joblib.dump(feature_importance, feature_importance_fn)
+
+        feature_importance = feature_importance / feature_importance.max()
+        X_train = X_train * feature_importance
+        X_val = X_val * feature_importance
+        X_test = X_test * feature_importance
+        X = X * feature_importance        
 
     # Run model
     run_model_args = [X_train, y_train, cohorts_train,
@@ -596,12 +763,16 @@ def main():
 
     if FLAGS.model_type == 'SEPARATE':
         run_pytorch_model('separate_mtl', create_separate_model, *run_model_args)
+    elif FLAGS.model_type == 'SNAPSHOT': # pretrained version of separate
+        run_pytorch_model('snapshot_mtl', create_snapshot_model, *run_model_args)
     elif FLAGS.model_type == 'MOE':
         run_pytorch_model('moe', create_moe_model, *run_model_args)
     elif FLAGS.model_type == 'GLOBAL':
         run_pytorch_model('global_pytorch', create_global_pytorch_model, *run_model_args)        
     elif FLAGS.model_type == 'MULTITASK':
         run_pytorch_model('mtl_pytorch', create_mtl_model, *run_model_args)
+    elif FLAGS.model_type == 'MTL_PT': # pretrained MTL from global - specific layers
+        run_pytorch_model('mtl_pt', create_mtl_pt_model, *run_model_args)
 
 if __name__ == "__main__":
     main()

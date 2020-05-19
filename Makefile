@@ -1,5 +1,9 @@
 cluster:
-	python generate_clusters.py --latent_dim 100 --ae_learning_rate 0.001 --ae_epochs 100 --num_clusters 3
+	# python generate_clusters.py --latent_dim 100 --ae_learning_rate 0.001 --ae_epochs 100 --num_clusters 3
+	# python cluster_moe.py --model_type GLOBAL
+	python cluster_moe.py --model_type VAL_CURVE
+	# python cluster_moe.py --model_type INPUT --pmt
+	# python cluster_moe.py --model_type AE --ae_epochs 200
 mtl_careunit:
 	python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --repeats_allowed
 	python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --repeats_allowed

@@ -12,7 +12,46 @@ class Separate_MIMIC_Model(nn.Module):
     def __init__(self, experts):
         super(self.__class__, self).__init__()
         self.experts = experts
+
+    def forward(self, x):
+        return [expert(x) for expert in self.experts]
+
+class Global_MIMIC_Cluster_Model(nn.Module):
+
+    '''global model in Jen's paper in PyTorch used for clustering'''
+    def __init__(self, input_dim, output_dim,
+                 n_layers=1, units=16, num_dense_shared_layers=0,
+                 dense_shared_layer_size=0, add_sigmoid=False):
+        super(self.__class__, self).__init__()
+        self.num_layers = n_layers
+        self.hidden_size = units
         
+        # global model
+        self.lstm = nn.LSTM(input_dim, units, n_layers, batch_first=True)
+
+        model = []
+        # additional dense layers
+        input_dim = units
+        for l in range(num_dense_shared_layers):
+            model.extend([nn.Linear(units, dense_shared_layer_size),
+                          nn.ReLU()])
+            input_dim = dense_shared_layer_size
+
+        # output layer
+        model.append(nn.Linear(input_dim, output_dim))
+        if add_sigmoid:
+            model.append(nn.Sigmoid())
+        self.rest = nn.Sequential(*model)
+
+    def forward(self, x):
+        '''assumes batch first'''
+        batch_size = x.shape[0]
+        h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        self.lstm.flatten_parameters()        
+        o, (h, c) = self.lstm(x, (h, c))
+        return self.rest(h[-1])
+
 class Global_MIMIC_Model(nn.Module):
 
     '''global model in Jen's paper in PyTorch'''
@@ -42,7 +81,8 @@ class Global_MIMIC_Model(nn.Module):
         '''assumes batch first'''
         batch_size = x.shape[0]
         h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
-        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda() 
+        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        self.lstm.flatten_parameters()        
         o, (h, c) = self.lstm(x, (h, c))
         return self.rest(h[-1])
 
@@ -96,14 +136,18 @@ class MTL_MIMIC_Model(nn.Module):
 
     ''' mtl model for mimic dataset'''
     def __init__(self, input_dim, n_layers, units, num_dense_shared_layers,
-                 dense_shared_layer_size, n_multi_layers, multi_units, output_dim, tasks):
+                 dense_shared_layer_size, n_multi_layers, multi_units, output_dim, tasks,
+                 lstm=None, shared=None):
         super(self.__class__, self).__init__()
         self.num_layers = n_layers
         self.hidden_size = units
         n_tasks = len(tasks)
         
         # shared part
-        self.lstm = nn.LSTM(input_dim, units, n_layers, batch_first=True)
+        if lstm is not None:
+            self.lstm = lstm
+        else:
+            self.lstm = nn.LSTM(input_dim, units, n_layers, batch_first=True)
        
         model = []
         input_dim = units
@@ -111,7 +155,11 @@ class MTL_MIMIC_Model(nn.Module):
             model.extend([nn.Linear(units, dense_shared_layer_size),
                           nn.ReLU()])
             input_dim = dense_shared_layer_size
-        self.shared = nn.Sequential(*model)
+
+        if shared is not None:
+            self.shared = shared
+        else:
+            self.shared = nn.Sequential(*model)
 
         # individual task layers: no need to learn gating function
         # later train using different sample weights defined by specific tasks/cohorts

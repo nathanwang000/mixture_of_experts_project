@@ -329,7 +329,6 @@ def get_bootstrapped_dataset(X, y, preds, cohorts, index=0, test=False, num_boot
         Numpy arrays: all_pos_samples, all_neg_samples. Contains num_bootstrap_samples indices 
         of positive and negative examples. 
     """
-
     # jw: make sure y is numpy
     if type(y) is pd.DataFrame:
         y = y.values.ravel()
