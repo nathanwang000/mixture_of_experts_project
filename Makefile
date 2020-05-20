@@ -5,9 +5,10 @@ cluster:
 	# python cluster_moe.py --model_type INPUT --pmt
 	# python cluster_moe.py --model_type AE --ae_epochs 200
 mtl_careunit:
-	python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --repeats_allowed
-	python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --repeats_allowed
-	python run_mortality_prediction.py --model_type SEPARATE --epochs 100 --repeats_allowed
+	# python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --repeats_allowed
+	# python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --repeats_allowed
+	# python run_mortality_prediction.py --model_type SEPARATE --epochs 100 --repeats_allowed
+	python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --result_suffix "_debug"
 mtl_custom:
 	python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --cohorts 'custom' --cohort_filepath test_clusters_embed100.npy --repeats_allowed --sample_weights
 	python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --cohorts 'custom' --cohort_filepath test_clusters_embed100.npy --repeats_allowed --sample_weights

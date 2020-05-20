@@ -4,20 +4,10 @@ in MIMIC iii data for the mortality task
 '''
 from functools import partial
 import copy, glob
-
-from numpy.random import seed
-seed(1)
-from tensorflow import set_random_seed
-set_random_seed(2)
 import torch
-torch.manual_seed(3)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-
 from torch import nn
 import torch.utils.data as data
 torch.set_num_threads(1)
-
 import os, tqdm
 import sys
 import argparse
@@ -37,8 +27,10 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
+    parser.add_argument("--random_run", action="store_true", default=False,
+                        help="run stochstically, including weight initialization")
     parser.add_argument("--result_suffix", type=str, default='',
-                        help="this will add to the end of results")
+                        help="this will add to the end of results|models|checkpoints")
     parser.add_argument("--data_hours", type=int, default=24,
                         help="The number of hours of data to use in making the prediction. \
         Type: int. Default: 24.")
@@ -87,19 +79,13 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--repeats_allowed", action="store_true", default=False,
                         help="Indicator flag allowing training and evaluating of existing models. Without this flag, \
         if you run a configuration for which you've already saved models & results, it will be skipped.")
-    parser.add_argument("--no_val_bootstrap", action="store_true", default=False,
-                        help="Indicator flag turning off bootstrapping evaluation on the validation set. Without this flag, \
-        minimum, maximum and average AUCs on bootstrapped samples of the validation dataset are saved. With the flag, \
-        just one AUC on the actual validation set is saved.")
-    parser.add_argument("--num_val_bootstrap_samples", type=int, default=100,
-                        help="Number of bootstrapping samples to evaluate on for the validation set. Type: int. Default: 100. ")
     parser.add_argument("--test_time", action="store_true", default=False,
                         help="Indicator flag of whether we are in testing time. With this flag, we will load in the already trained model \
         of the specified configuration, and evaluate it on the test set. ")
-    parser.add_argument("--test_bootstrap", action="store_true", default=False,
+    parser.add_argument("--bootstrap", action="store_true", default=False,
                         help="Indicator flag of whether to evaluate on bootstrapped samples of the test set, or just the single \
-        test set. Adding the flag will result in saving minimum, maximum and average AUCs on bo6otstrapped samples of the validation dataset. ")
-    parser.add_argument("--num_test_bootstrap_samples", type=int, default=100,
+        test set. Adding the flag will result in saving minimum, maximum and average AUCs on bo6otstrapped samples of the test dataset. ")
+    parser.add_argument("--num_bootstrap_samples", type=int, default=100,
                         help="Number of bootstrapping samples to evaluate on for the test set. Type: int. Default: 100. ")
     parser.add_argument("--gpu_num", type=str, default='5', 
                         help="Limit GPU usage to specific GPUs. Specify multiple GPUs with the format '0,1,2'. Type: String. Default: '0'.")
@@ -108,7 +94,18 @@ def get_args(): # adapted from run_mortality_prediction.py
     print(args)
     return args
 
+def make_deterministic():
+    '''make the running of the models deterministic'''
+    from numpy.random import seed
+    seed(1)
+    from tensorflow import set_random_seed
+    set_random_seed(2)
+    torch.manual_seed(3)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
 def cohorts2clusters(cohorts, all_tasks):
+    '''turn an array of str to array of int'''
     res = np.zeros_like(cohorts)
     for i, task in enumerate(all_tasks):
         res[cohorts==task] = i
@@ -437,12 +434,31 @@ def get_model_fname_parts(model_name, FLAGS):
         model_fname_parts.append("pmt")
     return model_fname_parts
 
-def evaluation(model_name, X, y, cohorts, all_tasks, FLAGS):
-    model_fname_parts = get_model_fname_parts(model_name, FLAGS)
-    model_path = FLAGS.experiment_name + \
-        '/models/' + "_".join(model_fname_parts) + \
-        FLAGS.result_suffix + '.m' # mark for future change
-    model = torch.load(model_path)
+def get_setting(FLAGS):
+    '''
+    return the setting Jen used to keep track of experiments ran
+    I have to say, whoever the original author was, she wrote terrible code
+    I'm not paid to refactor someone's code :(
+    '''
+    # todo: change key to include all args {("mtl", selected_frozen_args) }
+    # then it should point to a list of names of experiments ran with this setting
+    # then when I do hp search, I can start from here
+    # this would affect ['results', 'models', 'checkpoints']
+    setting = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
+                   FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
+    if FLAGS.model_type == "MULTITASK":
+        setting = setting + \
+            [FLAGS.num_multi_layers, FLAGS.multi_layer_size]
+    return np.array(setting)
+    
+def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
+    ''' 
+    model: pytorch model
+    X: (n, d) numpy array
+    y: (n,) numpy array
+    cohorts: (n,) numpy array
+    all_tasks (Numpy array/list): List of tasks
+    '''
     cohort_aucs = []
 
     loader = create_loader(X, y)
@@ -454,56 +470,74 @@ def evaluation(model_name, X, y, cohorts, all_tasks, FLAGS):
 
     # all bootstrapped AUCs
     for task in all_tasks:
-        if FLAGS.test_bootstrap:
+        if FLAGS.bootstrap:
             all_aucs = bootstrap_predict(X, y, cohorts, task, y_pred,
                                          return_everything=True,
                                          test=True,
-                                         num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
+                                         num_bootstrap_samples=FLAGS.num_bootstrap_samples)
             cohort_aucs.append(np.array(all_aucs))
+            min_auc, max_auc, avg_auc = np.min(all_aucs), np.max(all_aucs), np.mean(all_aucs)
+            print('{} Model AUC on {}: [min: {}, max: {}, avg: {}]'.format(model_name,
+                                                                           task, min_auc,
+                                                                           max_auc, avg_auc))
         else:
             y_pred_in_cohort = y_pred[cohorts == task]
             y_true_in_cohort = y[cohorts == task]
             auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
             cohort_aucs.append(auc)
+            print('{} Model AUC on {}: {}'.format(model_name, task, cohort_aucs[-1]))
 
-    if FLAGS.test_bootstrap:
+    if FLAGS.bootstrap:
         # Macro AUC
         cohort_aucs = np.array(cohort_aucs)
         cohort_aucs = np.concatenate(
             (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
 
+        all_aucs = cohort_aucs[-1]
+        min_auc, max_auc, avg_auc = np.min(all_aucs), np.max(all_aucs), np.mean(all_aucs)
+        print('{} Model AUC Macro: [min: {}, max: {}, avg: {}]'.format(model_name,
+                                                                       min_auc, max_auc, avg_auc))
+        
         # Micro AUC
         all_micro_aucs = bootstrap_predict(X, y, cohorts, 'all', y_pred,
                                            return_everything=True, test=True,
-                                           num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
+                                           num_bootstrap_samples=FLAGS.num_bootstrap_samples)
         cohort_aucs = np.concatenate(
             (cohort_aucs, np.array([all_micro_aucs])))
 
+        all_aucs = cohort_aucs[-1]
+        min_auc, max_auc, avg_auc = np.min(all_aucs), np.max(all_aucs), np.mean(all_aucs)
+        print('{} Model AUC Micro: [min: {}, max: {}, avg: {}]'.format(model_name,
+                                                                       min_auc, max_auc, avg_auc))
     else:
         # Macro AUC
         macro_auc = np.mean(cohort_aucs)
         cohort_aucs.append(macro_auc)
+        print('{} Model AUC Macro: {}'.format(model_name, cohort_aucs[-1]))
 
         # Micro AUC
         micro_auc = roc_auc_score(y, y_pred)
         cohort_aucs.append(micro_auc)
+        print('{} Model AUC Micro: {}'.format(model_name, cohort_aucs[-1]))        
 
+    return cohort_aucs
+
+def save_cohort_aucs(cohort_aucs, fname, FLAGS):
     # mark for future change        
     suffix = ""
     if FLAGS.sample_weights:
         suffix += "_sw"
     if FLAGS.pmt:
         suffix += "_pmt"
-    suffix += '_single' if not FLAGS.test_bootstrap else '_all'            
-    test_auc_fname = 'test_auc_on_{}'.format(model_name) + suffix
+    suffix += 'single' if not FLAGS.bootstrap else 'all'
+    auc_fname = '{}_{}'.format(fname, suffix)
     np.save(FLAGS.experiment_name + '/results/' +
-            test_auc_fname + FLAGS.result_suffix, cohort_aucs) 
-    
+            auc_fname + FLAGS.result_suffix, cohort_aucs)
+
 def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
-                      all_tasks, fname_keys,
-                      FLAGS, samp_weights):
+                      all_tasks, FLAGS, samp_weights):
     """
     Train and evaluate pytorch models. 
     Results are saved in FLAGS.experiment_name/results:
@@ -529,7 +563,6 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         y_test (Numpy array): The y matrix w testing examples. 
         cohorts_test (Numpy array): List of cohort membership for each testing example.
         all_tasks (Numpy array/list): List of tasks.
-        fname_keys (String): filename where the model parameters will be saved.
         FLAGS (dictionary): all the arguments.
         samp_weights: sample weights
     """
@@ -539,60 +572,9 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
             '/models/' + "_".join(model_fname_parts) + \
             FLAGS.result_suffix + '.m' # mark for future change
         model = torch.load(model_path)
-        cohort_aucs = []
-        
-        test_loader = create_loader(X_test, y_test)
-        if 'mtl' in model_name:
-            y_pred = get_output_mtl(model, X_test, y_test,
-                                    cohorts2clusters(cohorts_test, all_tasks)).ravel()
-        else:
-            y_pred = get_output(model, test_loader).ravel()
 
-        # all bootstrapped AUCs
-        for task in all_tasks:
-            if FLAGS.test_bootstrap:
-                all_aucs = bootstrap_predict(X_test, y_test, cohorts_test, task, y_pred,
-                                             return_everything=True,
-                                             test=True,
-                                             num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
-                cohort_aucs.append(np.array(all_aucs))
-            else:
-                y_pred_in_cohort = y_pred[cohorts_test == task]
-                y_true_in_cohort = y_test[cohorts_test == task]
-                auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
-                cohort_aucs.append(auc)
-
-        if FLAGS.test_bootstrap:
-            # Macro AUC
-            cohort_aucs = np.array(cohort_aucs)
-            cohort_aucs = np.concatenate(
-                (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
-
-            # Micro AUC
-            all_micro_aucs = bootstrap_predict(X_test, y_test, cohorts_test, 'all', y_pred,
-                                               return_everything=True, test=True, num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
-            cohort_aucs = np.concatenate(
-                (cohort_aucs, np.array([all_micro_aucs])))
-
-        else:
-            # Macro AUC
-            macro_auc = np.mean(cohort_aucs)
-            cohort_aucs.append(macro_auc)
-
-            # Micro AUC
-            micro_auc = roc_auc_score(y_test, y_pred)
-            cohort_aucs.append(micro_auc)
-
-        # mark for future change        
-        suffix = ""
-        if FLAGS.sample_weights:
-            suffix += "_sw"
-        if FLAGS.pmt:
-            suffix += "_pmt"
-        suffix += '_single' if not FLAGS.test_bootstrap else '_all'            
-        test_auc_fname = 'test_auc_on_{}'.format(model_name) + suffix
-        np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname + FLAGS.result_suffix, cohort_aucs) 
+        cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
+        save_cohort_aucs(cohort_aucs, 'test_auc_on_{}'.format(model_name), FLAGS)
         return
 
     batch_size = 100
@@ -656,76 +638,23 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                "_".join(model_fname_parts) + FLAGS.result_suffix + '.m') # mark for change
 
     ############### evaluation ###########
-    cohort_aucs = []
-    if 'mtl' in model_name:
-        y_pred = get_output_mtl(model, X_val, y_val,
-                                cohorts2clusters(cohorts_val, all_tasks)).ravel()
-    else:
-        y_pred = get_output(model, val_loader).ravel()
-        
-    for task in all_tasks:
-        print('{} Model AUC on '.format(model_name), task, ':')
-        if FLAGS.no_val_bootstrap:
-            try:
-                auc = roc_auc_score(
-                    y_val[cohorts_val == task], y_pred[cohorts_val == task])
-            except:
-                auc = np.nan
-            cohort_aucs.append(auc)
-        else:
-            min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, y_pred,
-                num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
-            cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
-            print ("(min/max/average): ")
-
-        print(cohort_aucs[-1])
-
-    cohort_aucs = np.array(cohort_aucs)
-
-    # Add Macro AUC
-    cohort_aucs = np.concatenate(
-        (cohort_aucs, np.expand_dims(np.nanmean(cohort_aucs, axis=0), 0)))
-
-    # Add Micro AUC
-    if FLAGS.no_val_bootstrap:
-        micro_auc = roc_auc_score(y_val, y_pred)
-        cohort_aucs = np.concatenate((cohort_aucs, np.array([micro_auc])))
-    else:
-        min_auc, max_auc, avg_auc = bootstrap_predict(
-            X_val, y_val, cohorts_val, 'all', y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
-        cohort_aucs = np.concatenate(
-            (cohort_aucs, np.array([[min_auc, max_auc, avg_auc]])))
-
-    # Save Results
-    current_run_params = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                          FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
-
-    # validation result # mark: maybe change later
-    val_auc_fname = 'val_auc_on_{}'.format(model_name) + suffix
-    fname_results = FLAGS.experiment_name + '/results/' + \
-        val_auc_fname + FLAGS.result_suffix
+    # validation
+    print('testing on validation set')
+    cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
+    save_cohort_aucs(cohort_aucs, 'val_auc_on_{}'.format(model_name), FLAGS)
     
-    try:
-        print('appending results.')
-        model_results = np.load(fname_results)
-        model_key = np.load(fname_keys)
-        model_results = np.concatenate(
-            (model_results, np.expand_dims(cohort_aucs, 0)))
-        model_key = np.concatenate(
-            (model_key, np.array([current_run_params])))
-
-    except Exception as e:
-        model_results = np.expand_dims(cohort_aucs, 0)
-        model_key = np.array([current_run_params])
-
-    np.save(fname_results, model_results) # mark for change
-    np.save(fname_keys, model_key)  # mark for change
+    # test
+    print('testing on test set')
+    cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
+    save_cohort_aucs(cohort_aucs, 'test_auc_on_{}'.format(model_name), FLAGS)
+    
     print('Saved {} results.'.format(model_name))
 
 def main():
     '''main function'''
     FLAGS = get_args()
+    if not FLAGS.random_run:
+        make_deterministic()
 
     # Limit GPU usage.
     os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_num
@@ -736,26 +665,19 @@ def main():
             os.makedirs(os.path.join(FLAGS.experiment_name, folder))
 
     # The file that we'll save model configurations to
+    # mark for future change
     sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
     sw = '' if FLAGS.model_type == 'SEPARATE' else sw
     fname_keys = FLAGS.experiment_name + '/results/' + \
         '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + FLAGS.result_suffix + '.npy'
 
     # Check that we haven't already run this configuration
+    current_setting = get_setting(FLAGS)
     if os.path.exists(fname_keys) and not FLAGS.repeats_allowed:
         model_key = np.load(fname_keys)
-        # todo: change key to include all args {("mtl", selected_frozen_args) }
-        # then it should point to a list of names of experiments ran with this setting
-        # then when I do hp search, I can start from here
-        # this would affect ['results', 'models', 'checkpoints']
-        current_run = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                       FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
-        if FLAGS.model_type == "MULTITASK":
-            current_run = current_run + \
-                [FLAGS.num_multi_layers, FLAGS.multi_layer_size]
-        print('Now running :', current_run)
+        print('Now running :', current_setting)
         print('Have already run: ', model_key.tolist())
-        if current_run in model_key.tolist():
+        if current_setting in model_key.tolist():
             print('Have already run this configuration. Now skipping this one.')
             sys.exit(0)
 
@@ -833,8 +755,7 @@ def main():
     run_model_args = [X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
-                      all_tasks, fname_keys,
-                      FLAGS, samp_weights]
+                      all_tasks, FLAGS, samp_weights]
 
     if FLAGS.model_type == 'SEPARATE':
         run_pytorch_model('separate_mtl', create_separate_model, *run_model_args)
@@ -849,6 +770,15 @@ def main():
     elif FLAGS.model_type == 'MTL_PT': # pretrained MTL from global - specific layers
         run_pytorch_model('mtl_pt', create_mtl_pt_model, *run_model_args)
 
+    # save the setting
+    if os.path.exists(fname_keys):
+        # appending results
+        model_key = np.load(fname_keys)
+        model_key = np.concatenate((model_key, current_setting))
+    else:
+        model_key = current_setting
+    np.save(fname_keys, model_key)
+    
 if __name__ == "__main__":
     main()
 

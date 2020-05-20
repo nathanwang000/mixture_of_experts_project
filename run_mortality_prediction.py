@@ -1,8 +1,6 @@
 # Import things
 from numpy.random import seed
-seed(1)
 from tensorflow import set_random_seed
-set_random_seed(2)
 
 import os
 import sys
@@ -38,6 +36,8 @@ def get_args():
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
+    parser.add_argument("--random_run", action="store_true", default=False,
+                        help="run stochstically, including weight initialization"): jw: added
     parser.add_argument("--result_suffix", type=str, default='', # jw: added to differentiate different runs
                         help="this will add to the end of results")
     parser.add_argument("--data_hours", type=int, default=24,
@@ -645,7 +645,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
             model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                                  str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
             model_path = FLAGS.experiment_name + \
-                '/models/' + "_".join(model_fname_parts)
+                '/models/' + "_".join(model_fname_parts) + FLAGS.result_suffix
             model = load_model(model_path)
 
             if FLAGS.test_bootstrap:
@@ -684,7 +684,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
         model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                              str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
         model_dir = FLAGS.experiment_name + \
-            '/checkpoints/' + "_".join(model_fname_parts)
+            '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         model_fname = model_dir + '/{epoch:02d}-{val_loss:.2f}.hdf5'
@@ -717,7 +717,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
         print(cohort_aucs[-1])
 
         model.save(FLAGS.experiment_name + '/models/' +
-                   "_".join(model_fname_parts))
+                   "_".join(model_fname_parts) + FLAGS.result_suffix)
 
     # save results to a file
     current_run_params = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
@@ -777,7 +777,7 @@ def run_global_model(X_train, y_train, cohorts_train,
 
     if FLAGS.test_time:
         model_path = FLAGS.experiment_name + \
-            '/models/' + "_".join(model_fname_parts)
+            '/models/' + "_".join(model_fname_parts) + FLAGS.result_suffix
         model = load_model(model_path)
         cohort_aucs = []
         y_pred = model.predict(X_test)
@@ -825,7 +825,7 @@ def run_global_model(X_train, y_train, cohorts_train,
                                      FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size, X_train.shape[1:], 1)
     early_stopping = EarlyStopping(monitor='val_loss', patience=4)
     model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts)
+        '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     model_fname = model_dir + '/{epoch:02d}-{val_loss:.2f}.hdf5'
@@ -838,7 +838,7 @@ def run_global_model(X_train, y_train, cohorts_train,
               validation_data=(X_val, y_val))
 
     model.save(FLAGS.experiment_name + '/models/' +
-               "_".join(model_fname_parts))
+               "_".join(model_fname_parts) + FLAGS.result_suffix)
 
     cohort_aucs = []
     y_pred = model.predict(X_val)
@@ -939,7 +939,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
 
     if FLAGS.test_time:
         model_path = FLAGS.experiment_name + \
-            '/models/' + "_".join(model_fname_parts)
+            '/models/' + "_".join(model_fname_parts) + FLAGS.result_suffix
         model = load_model(model_path)
         # y_pred = model.predict(X_test)
         # jw: should add below for better code; if use above then uncomment the last line
@@ -998,7 +998,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
     early_stopping = EarlyStopping(monitor='val_loss', patience=4)
 
     model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts)
+        '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     model_fname = model_dir + '/{epoch:02d}-{val_loss:.2f}.hdf5'
@@ -1013,7 +1013,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
                   validation_data=(X_val, [y_val for i in range(n_tasks)]))
 
     mtl_model.save(FLAGS.experiment_name + '/models/' +
-                   "_".join(model_fname_parts))
+                   "_".join(model_fname_parts) + FLAGS.result_suffix)
 
     cohort_aucs = []
 
@@ -1259,6 +1259,9 @@ def load_processed_data(data_hours=24, gap_time=12):
 if __name__ == "__main__":
 
     FLAGS = get_args()
+    if not FLAGS.random_run: # jw: added
+        seed(1)
+        set_random_seed(2)
 
     # Limit GPU usage.
     os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_num
