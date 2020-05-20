@@ -33,6 +33,8 @@ save_data_path = 'data/mortality/'
 def get_args():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam") # jw
+    parser.add_argument("--wd", type=float, default=0, help="weight decay Adam") # jw
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
@@ -435,7 +437,8 @@ def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, preds_orig, return_eve
 ####################################################################################
 
 
-def create_single_task_model(n_layers, units, num_dense_shared_layers, dense_shared_layer_size, input_dim, output_dim):
+def create_single_task_model(n_layers, units, num_dense_shared_layers, dense_shared_layer_size,
+                             input_dim, output_dim, FLAGS):
     """ 
     Create a single task model with LSTM layer(s), shared dense layer(s), and sigmoided output. 
     Args:
@@ -473,13 +476,15 @@ def create_single_task_model(n_layers, units, num_dense_shared_layers, dense_sha
     model.add(Dense(units=output_dim, activation='sigmoid'))
 
     model.compile(loss='binary_crossentropy',
-                  optimizer=Adam(lr=.0001),
+                  optimizer=Adam(lr=FLAGS.lr), # jw: added lr
                   metrics=['accuracy'])
 
     return model
 
 
-def create_multitask_model(input_dim, n_layers, units, num_dense_shared_layers, dense_shared_layer_size, n_multi_layers, multi_units, output_dim, tasks):
+def create_multitask_model(input_dim, n_layers, units, num_dense_shared_layers,
+                           dense_shared_layer_size, n_multi_layers, multi_units, output_dim,
+                           tasks, FLAGS):
     """ 
     Create a multitask model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
     and separate sigmoided outputs. 
@@ -542,10 +547,9 @@ def create_multitask_model(input_dim, n_layers, units, num_dense_shared_layers, 
                                        name=str(tasks[task_layer_num]) + '_output')(task_layers[task_layer_num]))
 
     loss_fn = 'binary_crossentropy'
-    learning_rate = 0.0001
     final_model = Model(inputs=x_inputs, outputs=output_layers)
     final_model.compile(loss=loss_fn,
-                        optimizer=Adam(lr=learning_rate),
+                        optimizer=Adam(lr=FLAGS.lr), # jw: added lr
                         metrics=['accuracy'])
 
     return final_model
@@ -680,7 +684,8 @@ def run_separate_models(X_train, y_train, cohorts_train,
 
         # create & fit model
         model = create_single_task_model(FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                                         FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size, X_train.shape[1:], 1)
+                                         FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size,
+                                         X_train.shape[1:], 1, FLAGS=FLAGS) # jw: add flags
         model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                              str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
         model_dir = FLAGS.experiment_name + \
@@ -822,7 +827,8 @@ def run_global_model(X_train, y_train, cohorts_train,
         return
 
     model = create_single_task_model(FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                                     FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size, X_train.shape[1:], 1)
+                                     FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size,
+                                     X_train.shape[1:], 1, FLAGS=FLAGS) # jw: add flags
     early_stopping = EarlyStopping(monitor='val_loss', patience=4)
     model_dir = FLAGS.experiment_name + \
         '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
@@ -992,8 +998,10 @@ def run_multitask_model(X_train, y_train, cohorts_train,
 
     # model
     mtl_model = create_multitask_model(X_train.shape[1:], FLAGS.num_lstm_layers,
-                                       FLAGS.lstm_layer_size, FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size,
-                                       FLAGS.num_multi_layers, FLAGS.multi_layer_size, output_dim=1, tasks=all_tasks)
+                                       FLAGS.lstm_layer_size, FLAGS.num_dense_shared_layers,
+                                       FLAGS.dense_shared_layer_size,
+                                       FLAGS.num_multi_layers, FLAGS.multi_layer_size, output_dim=1,
+                                       tasks=all_tasks, FLAGS=FLAGS) # jw: add flags
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=4)
 

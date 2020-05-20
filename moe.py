@@ -25,7 +25,8 @@ from utils import train, get_criterion, get_output
 
 def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
-
+    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam")
+    parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")    
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
@@ -58,7 +59,7 @@ def get_args(): # adapted from run_mortality_prediction.py
         Type: int. Default: 0.")
     parser.add_argument("--num_multi_layers", type=int, default=0,
                         help="Number of separate-task dense layers, only applies to multitask models. Currently \
-        only 0 or 1 separate-task dense layers are supported. Type: int. Default: 0.")
+        only 0 or 1 separate-task dense layers are supported for the original code. Type: int. Default: 0.")
     parser.add_argument("--multi_layer_size", type=int, default=0,
                         help="Number of units in separate-task dense layers, only applies to multitask \
         models. Type: int. Default: 0.")
@@ -74,7 +75,7 @@ def get_args(): # adapted from run_mortality_prediction.py
         more highly weighted during training).")
     parser.add_argument("--include_cohort_as_feature", action="store_true", default=False,
                         help="This is an indicator flag to include cohort membership as an additional feature in the matrix.")
-    parser.add_argument("--epochs", type=int, default=30,
+    parser.add_argument("--epochs", type=int, default=100, # jw: was 30
                         help="Number of epochs to train for. Type: int. Default: 30.")
     parser.add_argument("--train_val_random_seed", type=int, default=0,
                         help="Random seed to use during train / val / split process. Type: int. Default: 0.")
@@ -572,7 +573,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     if FLAGS.test_time:
         model_path = FLAGS.experiment_name + \
             '/models/' + "_".join(model_fname_parts) + \
-            FLAGS.result_suffix + '.m' # mark for future change
+            FLAGS.result_suffix + '.m' # secondary mark for future change
         model = torch.load(model_path)
 
         cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
@@ -623,11 +624,12 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
 
     model = create_model(model_args)
     model = model.cuda()
-   
-    model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix # mark for change later
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    # secondary mark for change later    
+    model_dir = FLAGS.experiment_name + \
+        '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.wd)
     get_c = partial(get_criterion, criterion=criterion)
     model, train_log = train(model, train_loader, criterion, optimizer, FLAGS.epochs,
                              savename = model_dir,
@@ -636,8 +638,9 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                              verbose=True)
     
     joblib.dump(train_log, '{}/log'.format(model_dir))
+    # secondary mark for change    
     torch.save(model, FLAGS.experiment_name + '/models/' +
-               "_".join(model_fname_parts) + FLAGS.result_suffix + '.m') # mark for change
+               "_".join(model_fname_parts) + FLAGS.result_suffix + '.m')
 
     ############### evaluation ###########
     # validation
@@ -667,7 +670,7 @@ def main():
             os.makedirs(os.path.join(FLAGS.experiment_name, folder))
 
     # The file that we'll save model configurations to
-    # mark for future change
+    # secondary mark for future change
     sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
     sw = '' if FLAGS.model_type == 'SEPARATE' else sw
     fname_keys = FLAGS.experiment_name + '/results/' + \
@@ -740,7 +743,7 @@ def main():
         #         feature_importance = pmt_importance(net, X_train, y_train, bs=bs)
         #         joblib.dump(feature_importance, feature_importance_fn)
             
-        feature_importance_fn = 'feature_importance_bs1000.pkl'
+        feature_importance_fn = 'feature_importance1000.pkl'
         if os.path.exists(feature_importance_fn):
             feature_importance = joblib.load(feature_importance_fn)
         else:
@@ -761,14 +764,14 @@ def main():
 
     if FLAGS.model_type == 'SEPARATE':
         run_pytorch_model('separate_mtl', create_separate_model, *run_model_args)
-    elif FLAGS.model_type == 'SNAPSHOT': # pretrained version of separate
-        run_pytorch_model('snapshot_mtl', create_snapshot_model, *run_model_args)
-    elif FLAGS.model_type == 'MOE':
-        run_pytorch_model('moe', create_moe_model, *run_model_args)
     elif FLAGS.model_type == 'GLOBAL':
         run_pytorch_model('global_pytorch', create_global_pytorch_model, *run_model_args)        
     elif FLAGS.model_type == 'MULTITASK':
         run_pytorch_model('mtl_pytorch', create_mtl_model, *run_model_args)
+    elif FLAGS.model_type == 'MOE':
+        run_pytorch_model('moe', create_moe_model, *run_model_args)
+    elif FLAGS.model_type == 'SNAPSHOT': # pretrained version of separate
+        run_pytorch_model('snapshot_mtl', create_snapshot_model, *run_model_args)
     elif FLAGS.model_type == 'MTL_PT': # pretrained MTL from global - specific layers
         run_pytorch_model('mtl_pt', create_mtl_pt_model, *run_model_args)
 
@@ -776,7 +779,10 @@ def main():
     if os.path.exists(fname_keys):
         # appending results
         model_key = np.load(fname_keys)
-        model_key = np.concatenate((model_key, current_setting))
+        try:
+            model_key = np.vstack((model_key, current_setting))
+        except:
+            model_key = current_setting
     else:
         model_key = current_setting
     np.save(fname_keys, model_key)

@@ -1,0 +1,544 @@
+* issues
+- [X] investigate why curves val stopped even though validation loss is still
+  going down: this is due to multiple runs some runs has more epochs
+  can be solve by looking up how long the log is, then only looking at that length
+- [X] global pytorch 100 epochs another run gives (signals huge variability from
+  run to run):
+  indeed, they make a huge difference, ask Jenna: should I seed the runs? Jen
+  did for their implementation (the first 30 runs are not seeded, the next 30
+  runs are seeded in clean_template)
+- [X] investigate how stable bs is for pmt_importance
+- [X] investigate why moe.py have model keys incompatible: b/c multitask and
+  mtl_pytorch all uses multitask as prefix for registering the key
+
+* result documentation
+
+Results are saved in mortality_test/results/*_result_* of shape (N, n-tasks, 3)
+where N is the number of experiments run, n-tasks is the number of subtasks plus
+micro and macro aucs. Each row contains (min_auc, max_auc, avg_auc).
+
+** pytorch: global epochs
+with 29 features global 30 epochs
+| Careunit | paper | Global model performance (min, max ,avg) |
+|----------+-------+------------------------------------------|
+| CCU      | 0.862 | [0.7572065  0.91284585 0.85221765]       |
+| CSRU     | 0.849 | [0.91958859 0.98887344 0.96226586]       |
+| MICU     | 0.814 | [0.76863137 0.8621232  0.81714127]       |
+| SICU     | 0.839 | [0.75536274 0.91826923 0.83724171]       |
+| TSICU    | 0.846 | [0.74532527 0.95282289 0.8412782 ]       |
+|----------+-------+------------------------------------------|
+| Overall  |       |                                          |
+#+TBLFM: $3=19498/34486::
+
+pytorch global test
+array([0.84983647, 0.90606884, 0.82414306, 0.84718137, 0.893982,
+       0.86424235, 0.86361049])
+
+compared to keras global
+array([0.85479242, 0.92871377, 0.82596592, 0.83960198, 0.88397544,
+       0.86660991, 0.86591873])
+
+similar performance: difference could be due to 
+a) initialization
+b) activation: relu vs. tanh
+
+compared to keras MTL
+array([0.85038713, 0.84927536, 0.81366257, 0.85340036, 0.88282715,
+       0.84991051, 0.8540471 ])
+
+MoE
+array([0.84728341, 0.91571558, 0.83084407, 0.84548411, 0.8958802 ,
+       0.86704147, 0.86614556])
+
+** mtl_careunit + 30 epochs 
+
+with 29 features global 30 epochs
+| Careunit | paper | Global model performance (min, max ,avg) | MTL                                      | SEPARATE |
+|----------+-------+------------------------------------------+------------------------------------------+----------|
+| CCU      | 0.862 | [0.80150215 0.91850302 0.86744457]       | [0.74226939 0.91166899 0.84451127] 0.861 |    0.817 |
+| CSRU     | 0.849 | [0.80727532 0.99095967 0.92920596]       | [0.80567243 0.98855508 0.91418871] 0.867 |    0.900 |
+| MICU     | 0.814 | [0.77616453 0.86346981 0.82452799]       | [0.79494069 0.8684893  0.82997061] 0.832 |    0.844 |
+| SICU     | 0.839 | [0.77715517 0.9105235  0.83770194]       | [0.75331405 0.9130609  0.83833449] 0.855 |    0.819 |
+| TSICU    | 0.846 | [0.75620748 0.93185529 0.83319627]       | [0.76906281 0.94146341 0.84982396] 0.869 |   0.7818 |
+|----------+-------+------------------------------------------+------------------------------------------+----------|
+| Overall  |       |                                          |                                          |          |
+#+TBLFM: $3=19498/34486::
+
+** mtl_careunit + 100 epochs 
+
+with 29 features global (embedding 50, 100 epochs)
+| Careunit | paper | Global model performance (min, max ,avg) | MTL                                      | SEPARATE |
+|----------+-------+------------------------------------------+------------------------------------------+----------|
+| CCU      | 0.862 | [0.80124668 0.91868898 0.86758903]       | [0.73971436 0.90539284 0.83389003] 0.861 |    0.836 |
+| CSRU     | 0.849 | [0.8064194  0.99084376 0.92882187]       | [0.79351722 0.98879351 0.90874931] 0.867 |    0.902 |
+| MICU     | 0.814 | [0.77646441 0.86363712 0.82479127]       | [0.79165867 0.86436495 0.82669544] 0.832 |  *0.842* |
+| SICU     | 0.839 | [0.7774111  0.91025641 0.8377214 ]       | [0.75066281 0.91846955 0.83665567] 0.855 |    0.818 |
+| TSICU    | 0.846 | [0.75663265 0.93228495 0.83341011]       | [0.74667367 0.9312297  0.84036861] 0.869 |    0.587 |
+|----------+-------+------------------------------------------+------------------------------------------+----------|
+| Overall  |       |                                          |                                          |          |
+#+TBLFM: $3=19498/34486::
+
+MTL does subpar to the paper's performance, but the global model does better.
+
+** mtl_custom (test_clusters_embed50 with learning rate of 0.0001) + 100 epochs
+
+np.load('mortality_test/results/global_model_results_no_sample_weights.npy')
+array([[[0.77855804, 0.86233535, 0.82191406],
+        [0.81899898, 0.91768001, 0.87648708],
+        [0.80371008, 0.96866232, 0.89775466],     *
+        [0.80042236, 0.91622589, 0.86538526],     *
+        [0.83767505, 0.89481606, 0.8628155 ]]])   *
+
+np.load('mortality_test/results/multitask_model_results_no_sample_weights.npy')
+array([[[0.74385536, 0.83300008, 0.79137428],
+        [0.77635023, 0.89538487, 0.8453065 ],
+        [0.74897686, 0.92391717, 0.83851468],
+        [0.75639415, 0.88410071, 0.82506516],
+        [0.7979151 , 0.85417915, 0.82864927]]])
+
+np.load('mortality_test/results/separate_model_results_.npy')
+array([[[0.79549663, 0.86865482, 0.83161088], *
+        [0.80632258, 0.93504919, 0.88168163], *
+        [0.71179958, 0.90831851, 0.82135222],
+	[0.77120626, 0.90400751, 0.84488158]]]) # I calculated macro here
+
+Apparently in this instance, the multitask model is not doing well compared to a
+global model. The separate model does very well except for the last task where
+it report much higher variance.
+
+** mtl_custom (test_clusters_embed100 with learning rate of 0.001 same as paper) + 100 epochs
+   
+   global
+   [[0.80068688, 0.86053729, 0.82675756],
+   [0.61185036, 0.98894472, 0.85902594], *
+   [0.76918529, 0.89238075, 0.83185351], *
+   [0.72724084, 0.91395425, 0.83921234], *
+   [0.83763931, 0.89458789, 0.86270478]] *
+   
+   MTL
+   [[0.79763495, 0.86599557, 0.82917878], *
+   [0.66928447, 0.89397906, 0.79088401],
+   [0.75189727, 0.88112745, 0.81772356], 
+   [0.73960556, 0.88036736, 0.81259545],
+   [0.82948141, 0.88368228, 0.85424547]]
+   
+   separate
+   [[0.78150526, 0.84224262, 0.8097298 ],
+   [0.61904762, 0.98257713, 0.80308315],
+   [0.7520938 , 0.88231986, 0.82650183]]
+
+** mtl_custom with sample weights (other settings as above)
+
+global
+       [[0.79942535, 0.86249905, 0.82824894], -
+        [0.63268893, 0.99005146, 0.87661106], *
+        [0.76601292, 0.89459082, 0.8318923 ], *
+        [0.73270906, 0.91571378, 0.8455841 ], *
+        [0.84080075, 0.89626895, 0.86531702]] *
+
+MTL
+       [[0.79143866, 0.86730523, 0.8282009 ], -
+        [0.57068063, 0.94138544, 0.79839429],
+        [0.76106195, 0.88020833, 0.82032029],
+        [0.70772708, 0.89629967, 0.81563849],
+        [0.83061266, 0.88383761, 0.85700992]]
+
+separate
+       [[0.78150526, 0.84224262, 0.8097298 ],
+        [0.62037037, 0.98257713, 0.80309355],
+        [0.75204548, 0.88231986, 0.82641032]]
+
+* TODO data check
+
+- [X] check that I can reproduce table 1
+- [X] check the result matches
+- [X] Jeeheh paper
+- [X] use the reported 29 features (original has 104 vitals and labs)
+- [X] PyTorch baseline
+  - [X] write a fit function for PyTorch LSTM
+  - [X] write an evaluation code for PyTorch
+  - [X] baseline: MoE
+  - [X] baseline: pretrained MTL model (pretrain from global model - specific layers)
+  - [X] baseline: PMT
+  - [X] generate_cluster: kmeans on pmt
+  - [X] generate_cluster: kmeans on LSTM output (or different layers afterwards)
+  - [X] generate_cluster: pmt + val_curve
+  - [X] combination: snapshot; give it a chance to start from snapshot
+  - [X] combination: MTL
+  - [X] baseline: distillation? doesn't apply to binary
+- [-] hyperparameter search
+  - [-] the model side: random search for mtl_pytorch, separate, global_pytorch,
+    moe; after which do snapshot, and mtl_pt, and pmt versions of the previous approaches
+    - [X] lr: 0.0001 (0.001 works much better)
+    - [X] wd: 0 (0.1 doesn't make sense, try lower)
+    - [X] lstm_layer_size: 16 (300 works much better)
+    - [ ] num_dense_shared_layers: 0
+    - [ ] dense_shared_layer_size: 0
+    - [ ] num_multi_layers: 0 (only 0 or 1 supported for the original code)
+    - [ ] multi_layer_size: 0
+    - [ ] sample_weights: False
+    - [ ] include_cohort_as_feature: False
+    - [ ] pmt: search this after having the best global model
+  - [ ] the cluster side: random search
+    - [ ] 
+
+
+*** result summary
+note: * uses 109 features, whereas else uses 29 features in paper
+note: not hyper param tuned; follows hyperparam setting in the paper
+| Careunit | Global* keras | Global keras | Global PyTorch |  MTL keras | MoE PyTorch |
+|----------+---------------+--------------+----------------+------------+-------------|
+| CCU      |    0.89225404 |   0.85479242 |     0.84983647 | 0.85038713 |  0.84728341 |
+| CSRU     |    0.91068841 |   0.92871377 |     0.90606884 | 0.84927536 |  0.91571558 |
+| MICU     |    0.84140579 |   0.82596592 |     0.82414306 | 0.81366257 |  0.83084407 |
+| SICU     |    0.86747082 |   0.83960198 |     0.84718137 | 0.85340036 |  0.84548411 |
+| TSICU    |    0.88863892 |   0.88397544 |       0.893982 | 0.88282715 |   0.8958802 |
+|----------+---------------+--------------+----------------+------------+-------------|
+| Macro    |    0.88009159 |   0.86660991 |     0.86424235 | 0.84991051 |  0.86704147 |
+| Micro    |    0.88057511 |   0.86591873 |     0.86361049 |  0.8540471 |  0.86614556 |
+
+same table but less precision
+note: * uses 109 features, whereas else uses 29 features in paper
+note: not hyper param tuned; follows hyperparam setting in the paper
+| Careunit | Global* keras | Global keras | Global PyTorch | MTL keras | MoE PyTorch |
+|----------+---------------+--------------+----------------+-----------+-------------|
+| CCU      |         0.892 |        0.855 |          0.850 |     0.850 |       0.847 |
+| CSRU     |         0.911 |        0.929 |          0.906 |     0.849 |       0.916 |
+| MICU     |         0.841 |        0.826 |          0.824 |     0.814 |       0.831 |
+| SICU     |         0.867 |        0.840 |          0.847 |     0.853 |       0.845 |
+| TSICU    |         0.889 |        0.884 |          0.894 |     0.883 |       0.896 |
+|----------+---------------+--------------+----------------+-----------+-------------|
+| Macro    |         0.880 |        0.867 |          0.864 |     0.850 |       0.867 |
+| Micro    |         0.881 |        0.866 |          0.864 |     0.854 |       0.866 |
+#+TBLFM: $2=$2;%.3f::$3=$3;%.3f::$4=$4;%.3f::$5=$5;%.3f
+
+- global pytorch 100 epochs other runs gives (signals huge variability from run
+to run):
+array([0.85215592, 0.93245018, 0.84186646, 0.86116114, 0.87931196,
+       0.87338913, 0.87433607])
+array([0.85676145, 0.90858243, 0.82498712, 0.86319526, 0.88819366,
+       0.86834398, 0.86645781])
+
+- moe pytorch 100 epochs:
+array([0.86467094, 0.92366395, 0.82938577, 0.86105749, 0.86616517,
+       0.86898866, 0.86866585])
+
+- mtl pytorch
+array([0.84332866, 0.90183424, 0.8326174 , 0.84083283, 0.85536183,
+       0.85479499, 0.85851561])
+
+- separate pytorch
+array([0.81018889, 0.86179801, 0.82041411, 0.83377169, 0.8402231 ,
+       0.83327916, 0.84139187])
+
+- snapshot *
+array([0.85379122, 0.9352808 , 0.84226075, 0.86646023, 0.88892013,
+       0.87734263, 0.87744373])
+
+- mtl pretrained 
+array([0.83560272, 0.89560688, 0.82127601, 0.84821787, 0.86883671,
+       0.85390804, 0.85102039])
+
+- pmt global: this is doing better
+array([0.86188426, 0.91687047, 0.82787795, 0.8556677 , 0.88713911,
+       0.8698879 , 0.86915939])
+
+** check Table 1 stats
+
+note: Age and Gender are from 34486 population
+| Careunit |     N |    n | Class Imbalance | Age (Mean) | Gender (Male) | Model AUC (min, max, avg) 104 features    |
+|----------+-------+------+-----------------+------------+---------------+-------------------------------------------|
+| CCU      |  4905 |  357 |     0.072782875 |      83.32 |    0.57833656 | [0.82256011 0.94625335 0.88572181]  0.862 |
+| CSRU     |  6981 |  140 |     0.020054433 |      69.56 |    0.66997308 | [0.85038814 0.99154072 0.93100023]  0.849 |
+| MICU     | 11487 | 1178 |      0.10255071 |      78.08 |    0.50784314 | [0.80173936 0.88708556 0.8504927 ]  0.814 |
+| SICU     |  5208 |  423 |     0.081221198 |      73.45 |    0.51503623 | [0.81548894 0.93591189 0.87458726]  0.839 |
+| TSICU    |  4244 |  294 |     0.069274270 |      67.38 |    0.60614836 | [0.76110688 0.94651644 0.84891422]  0.846 |
+|----------+-------+------+-----------------+------------+---------------+-------------------------------------------|
+| Overall  | 32825 | 2392 |     0.072871287 |      74.98 |    0.56538885 |                                           |
+
+| Careunit |     N |    n |
+|----------+-------+------|
+| CCU      |  4905 |  357 |
+| CSRU     |  6981 |  140 |
+| MICU     | 11487 | 1178 |
+| SICU     |  5208 |  423 |
+| TSICU    |  4244 |  294 |
+|----------+-------+------|
+| Overall  | 32825 | 2392 |
+
+X is of shape: (32825, 24, 714); paper reported 32686
+
+This stats is very similar to Table 1 and 
+
+** some renamings possibly due to difference in version?
+static.csv: static_data.csv
+X.h5: read_hdf(all_hourly_data.h5, vitals_labs_mean)
+code_status.csv: rename timecmo_chart => cmo_first_charttime; rename
+timecmo_nursingnote => cmo_nursingnote_charttime
+
+* output from mimic extract
+** all_hourly_data.h5
+https://github.com/MLforHealth/MIMIC_Extract
+- patients: static demographics, static outcomes
+
+One row per (subj_id,hadm_id,icustay_id)
+- vitals_labs: time-varying vitals and labs (hourly mean, count and standard
+deviation)
+
+One row per (subj_id,hadm_id,icustay_id,hours_in)
+- vitals_labs_mean: time-varying vitals and labs (hourly mean only)
+
+One row per (subj_id,hadm_id,icustay_id,hours_in)
+- interventions: hourly binary indicators for administered interventions
+
+One row per (subj_id,hadm_id,icustay_id,hours_in)
+** C.h5: ICD9 code
+** outcomes_hourly_data.h5: 
+#+BEGIN_VERSE
+ vent  vaso  dopamine  ...  colloid_bolus  crystalloid_bolus  nivdurations
+subject_id hadm_id icustay_id hours_in                        ...
+3          145834  211552     0            1     0         0  ...              0                  0             0
+                              1            1     1         1  ...              0                  0             0
+#+END_VERSE
+
+** vitals_hourly_data.h5
+
+#+BEGIN_VERSE
+LEVEL2                                 Alanine aminotransferase            Albumin       ...   pH           pH urine         
+Aggregation Function                                      count  mean  std   count mean  ... mean       std    count mean std
+subject_id hadm_id icustay_id hours_in                                                   ...                                 
+3          145834  211552     0                             2.0  25.0  0.0     2.0  1.8  ...  7.4  0.147733      1.0  5.0 NaN
+
+[1 rows x 273 columns]
+#+END_VERSE
+
+* database commands
+
+\copy (select * from code_status )to '/data6/jiaxuan/code_status.csv' with csv header;
+
+* used physiological variables 
+
+static (3) # in static_data.csv
+- [X] Gender
+- [X] Age
+- [X] Ethnicity
+
+vitals and labs (29) # inside vitals_colnames.txt
+- [X] blood pH # pH
+- [X] Heart rate # Heart Rate
+- [X] Oxygen saturation
+- [X] Hemoglobin
+- [X] Magnesium
+- [X] Diastolic blood pressure
+- [X] Mean blood pressure
+- [X] Platelets
+- [X] Phosphate
+- [X] Prothrombin time # Prothrombin time PT
+- [X] Bicarbonate
+- [X] Anion gap
+- [X] Creatinine
+- [X] Chloride
+- [X] Blood urea nitrogen
+- [X] Fraction inspired oxygen 
+- [X] Glascow coma scale total
+- [X] Hematocrit
+- [X] Glucose
+- [X] Lactate
+- [X] INR* # found 'Prothrombin time INR'
+- [X] Partial thromboplastin time
+- [X] Potassium
+- [X] Respiratory rate
+- [X] Sodium
+- [X] Systolic blood pressure
+- [X] Temperature
+- [X] White blood cell count
+- [X] Weight
+
+The following are feed into X
+#+BEGIN_SRC python
+features = [
+"ph",
+"heart rate",
+"oxygen saturation",
+"hemoglobin",
+"magnesium",
+"diastolic blood pressure",
+"mean blood pressure",
+"platelets",
+"phosphate",
+"prothrombin time pt",
+"bicarbonate",
+"anion gap",
+"creatinine",
+"chloride",
+"blood urea nitrogen",
+"fraction inspired oxygen",
+"glascow coma scale total",
+"hematocrit",
+"glucose",
+"lactate",
+"prothrombin time inr",
+"partial thromboplastin time",
+"potassium",
+"respiratory rate",
+"sodium",
+"systolic blood pressure",
+"temperature",
+"white blood cell count",
+"weight",
+]
+#+END_SRC
+
+The saved file is called  "all_hourly_data_subset.pkl"
+
+** full vitals
+
+#+BEGIN_SRC python
+[u'alanine aminotransferase',
+  u'albumin',
+  u'albumin ascites',
+  u'albumin pleural',
+  u'albumin urine',
+  u'alkaline phosphate',
+  u'anion gap',
+  u'asparate aminotransferase',
+  u'basophils',
+  u'bicarbonate',
+  u'bilirubin',
+  u'blood urea nitrogen',
+  u'calcium',
+  u'calcium ionized',
+  u'calcium urine',
+  u'cardiac index',
+  u'cardiac output fick',
+  u'cardiac output thermodilution',
+  u'central venous pressure',
+  u'chloride',
+  u'chloride urine',
+  u'cholesterol',
+  u'cholesterol hdl',
+  u'cholesterol ldl',
+  u'co2',
+  u'co2 (etco2, pco2, etc.)',
+  u'creatinine',
+  u'creatinine ascites',
+  u'creatinine body fluid',
+  u'creatinine pleural',
+  u'creatinine urine',
+  u'diastolic blood pressure',
+  u'eosinophils',
+  u'fibrinogen',
+  u'fraction inspired oxygen',
+  u'fraction inspired oxygen set',
+  u'glascow coma scale total',
+  u'glucose',
+  u'heart rate',
+  u'height',
+  u'hematocrit',
+  u'hemoglobin',
+  u'lactate',
+  u'lactate dehydrogenase',
+  u'lactate dehydrogenase pleural',
+  u'lactic acid',
+  u'lymphocytes',
+  u'lymphocytes ascites',
+  u'lymphocytes atypical',
+  u'lymphocytes atypical csl',
+  u'lymphocytes body fluid',
+  u'lymphocytes percent',
+  u'lymphocytes pleural',
+  u'magnesium',
+  u'mean blood pressure',
+  u'mean corpuscular hemoglobin',
+  u'mean corpuscular hemoglobin concentration',
+  u'mean corpuscular volume',
+  u'monocytes',
+  u'monocytes csl',
+  u'neutrophils',
+  u'oxygen saturation',
+  u'partial pressure of carbon dioxide',
+  u'partial pressure of oxygen',
+  u'partial thromboplastin time',
+  u'peak inspiratory pressure',
+  u'ph',
+  u'ph urine',
+  u'phosphate',
+  u'phosphorous',
+  u'plateau pressure',
+  u'platelets',
+  u'positive end-expiratory pressure',
+  u'positive end-expiratory pressure set',
+  u'post void residual',
+  u'potassium',
+  u'potassium serum',
+  u'prothrombin time inr',
+  u'prothrombin time pt',
+  u'pulmonary artery pressure mean',
+  u'pulmonary artery pressure systolic',
+  u'pulmonary capillary wedge pressure',
+  u'red blood cell count',
+  u'red blood cell count ascites',
+  u'red blood cell count csf',
+  u'red blood cell count pleural',
+  u'red blood cell count urine',
+  u'respiratory rate',
+  u'respiratory rate set',
+  u'sodium',
+  u'systemic vascular resistance',
+  u'systolic blood pressure',
+  u'temperature',
+  u'tidal volume observed',
+  u'tidal volume set',
+  u'tidal volume spontaneous',
+  u'total protein',
+  u'total protein urine',
+  u'troponin-i',
+  u'troponin-t',
+  u'venous pvo2',
+  u'weight',
+  u'white blood cell count',
+  u'white blood cell count urine']
+#+END_SRC
+* code reading notes for multitask patient
+
+** generate clusters
+   
+   This file takes data of (n, T, d) and embed it into a latent dimensional (paper: 100) space and then clustered with GMM
+   
+   The inputs are feed into an LSTM encoder, turning it into a fixed dimensional embedding.
+   Then the decoded embedding are repeated for T time steps and used to get a decoded sequence.
+
+   Then the embedding is used to train a GMM.
+
+*** hyper-parameters (as reported in paper)
+    
+    - latent dim: 100
+    - ae_learning_rate (autoencoder learning rate): 0.001 (not default)
+    - ae_epochs: 100
+    - num_clusters: 3
+    - train val split: 7:1 (indeed in line 277 does that)
+   
+** run mortality prediction
+   it converts continuous values into z scores (int); use get dummies to create discrete groups.
+   Uses stratified split of X, Y stratified by outcome. 
+   The tasks in MTL are weighted by inversely by the amount of person in the cohort (encourage to do well in each cluster): task_weights
+
+*** hyper-parameters
+    
+    - epochs: 100
+    - learning_rate: 0.0001
+      
+*** functions
+
+   load_phys_data: uses X.h5 output X ({'subject_id', 'icustay_id', 'hours_in', 'hadm_id'}), and static ({'subject_id', 'hadm_id', 'icustay_id'})
+
+   get_mtl_sample_weights: create mask for the task also optionally weighs each sample 
+
+*** models
+    all trained with binary class entropy
+
+    single task: read X by an one layer LSTM and then do the output; note only uses the whole seq if more than 1 LSTM layer
+    MTL: process by one layer LSTM, then have task specific output with optional one more layer for each task
+    
+    Training MTL is treated like multi-label classification with a mask indicating the true task
+

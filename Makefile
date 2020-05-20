@@ -8,7 +8,8 @@ mtl_careunit:
 	# python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --repeats_allowed
 	# python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --repeats_allowed
 	# python run_mortality_prediction.py --model_type SEPARATE --epochs 100 --repeats_allowed
-	python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --result_suffix "_debug"
+	# python run_mortality_prediction.py --model_type GLOBAL --epochs 2 --repeats_allowed --result_suffix "_debug"
+	python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --result_suffix "_debug" --lr 0.001 --num_dense_shared_layers 3 --dense_shared_layer_size 16 #--lstm_layer_size 16
 mtl_custom:
 	python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --cohorts 'custom' --cohort_filepath test_clusters_embed100.npy --repeats_allowed --sample_weights
 	python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --cohorts 'custom' --cohort_filepath test_clusters_embed100.npy --repeats_allowed --sample_weights
