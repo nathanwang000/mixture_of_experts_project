@@ -37,7 +37,7 @@ def get_args():
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
     parser.add_argument("--random_run", action="store_true", default=False,
-                        help="run stochstically, including weight initialization"): jw: added
+                        help="run stochstically, including weight initialization") # jw: added
     parser.add_argument("--result_suffix", type=str, default='', # jw: added to differentiate different runs
                         help="this will add to the end of results")
     parser.add_argument("--data_hours", type=int, default=24,
