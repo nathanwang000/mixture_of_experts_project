@@ -4,8 +4,16 @@ from functools import partial
 import torch
 from torch import nn
 import torch.utils.data as data
+
 from numpy.random import seed
 seed(1)
+from tensorflow import set_random_seed
+set_random_seed(2)
+import torch
+torch.manual_seed(3)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 import numpy as np
 from numpy.random import permutation
 import argparse

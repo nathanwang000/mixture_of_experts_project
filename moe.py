@@ -4,12 +4,16 @@ in MIMIC iii data for the mortality task
 '''
 from functools import partial
 import copy, glob
+
 from numpy.random import seed
 seed(1)
 from tensorflow import set_random_seed
 set_random_seed(2)
-
 import torch
+torch.manual_seed(3)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 from torch import nn
 import torch.utils.data as data
 torch.set_num_threads(1)
@@ -33,6 +37,8 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
+    parser.add_argument("--result_suffix", type=str, default='',
+                        help="this will add to the end of results")
     parser.add_argument("--data_hours", type=int, default=24,
                         help="The number of hours of data to use in making the prediction. \
         Type: int. Default: 24.")
@@ -431,10 +437,72 @@ def get_model_fname_parts(model_name, FLAGS):
         model_fname_parts.append("pmt")
     return model_fname_parts
 
+def evaluation(model_name, X, y, cohorts, all_tasks, FLAGS):
+    model_fname_parts = get_model_fname_parts(model_name, FLAGS)
+    model_path = FLAGS.experiment_name + \
+        '/models/' + "_".join(model_fname_parts) + \
+        FLAGS.result_suffix + '.m' # mark for future change
+    model = torch.load(model_path)
+    cohort_aucs = []
+
+    loader = create_loader(X, y)
+    if 'mtl' in model_name:
+        y_pred = get_output_mtl(model, X, y,
+                                cohorts2clusters(cohorts, all_tasks)).ravel()
+    else:
+        y_pred = get_output(model, loader).ravel()
+
+    # all bootstrapped AUCs
+    for task in all_tasks:
+        if FLAGS.test_bootstrap:
+            all_aucs = bootstrap_predict(X, y, cohorts, task, y_pred,
+                                         return_everything=True,
+                                         test=True,
+                                         num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
+            cohort_aucs.append(np.array(all_aucs))
+        else:
+            y_pred_in_cohort = y_pred[cohorts == task]
+            y_true_in_cohort = y[cohorts == task]
+            auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
+            cohort_aucs.append(auc)
+
+    if FLAGS.test_bootstrap:
+        # Macro AUC
+        cohort_aucs = np.array(cohort_aucs)
+        cohort_aucs = np.concatenate(
+            (cohort_aucs, np.expand_dims(np.mean(cohort_aucs, axis=0), 0)))
+
+        # Micro AUC
+        all_micro_aucs = bootstrap_predict(X, y, cohorts, 'all', y_pred,
+                                           return_everything=True, test=True,
+                                           num_bootstrap_samples=FLAGS.num_test_bootstrap_samples)
+        cohort_aucs = np.concatenate(
+            (cohort_aucs, np.array([all_micro_aucs])))
+
+    else:
+        # Macro AUC
+        macro_auc = np.mean(cohort_aucs)
+        cohort_aucs.append(macro_auc)
+
+        # Micro AUC
+        micro_auc = roc_auc_score(y, y_pred)
+        cohort_aucs.append(micro_auc)
+
+    # mark for future change        
+    suffix = ""
+    if FLAGS.sample_weights:
+        suffix += "_sw"
+    if FLAGS.pmt:
+        suffix += "_pmt"
+    suffix += '_single' if not FLAGS.test_bootstrap else '_all'            
+    test_auc_fname = 'test_auc_on_{}'.format(model_name) + suffix
+    np.save(FLAGS.experiment_name + '/results/' +
+            test_auc_fname + FLAGS.result_suffix, cohort_aucs) 
+    
 def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
-                      all_tasks, fname_keys, fname_results,
+                      all_tasks, fname_keys,
                       FLAGS, samp_weights):
     """
     Train and evaluate pytorch models. 
@@ -462,14 +530,14 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         cohorts_test (Numpy array): List of cohort membership for each testing example.
         all_tasks (Numpy array/list): List of tasks.
         fname_keys (String): filename where the model parameters will be saved.
-        fname_results (String): filename where the model AUCs will be saved.
         FLAGS (dictionary): all the arguments.
         samp_weights: sample weights
     """
     model_fname_parts = get_model_fname_parts(model_name, FLAGS)
     if FLAGS.test_time:
         model_path = FLAGS.experiment_name + \
-            '/models/' + "_".join(model_fname_parts) + '.m' # mark for future change
+            '/models/' + "_".join(model_fname_parts) + \
+            FLAGS.result_suffix + '.m' # mark for future change
         model = torch.load(model_path)
         cohort_aucs = []
         
@@ -477,8 +545,6 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         if 'mtl' in model_name:
             y_pred = get_output_mtl(model, X_test, y_test,
                                     cohorts2clusters(cohorts_test, all_tasks)).ravel()
-        elif 'pmt' in model_name:
-            pass
         else:
             y_pred = get_output(model, test_loader).ravel()
 
@@ -526,7 +592,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         suffix += '_single' if not FLAGS.test_bootstrap else '_all'            
         test_auc_fname = 'test_auc_on_{}'.format(model_name) + suffix
         np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs) 
+                test_auc_fname + FLAGS.result_suffix, cohort_aucs) 
         return
 
     batch_size = 100
@@ -557,10 +623,14 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         'tasks': all_tasks,
         # mark for change
         'global_model_dir': FLAGS.experiment_name + \
-                            '/checkpoints/global_pytorch_' + "_".join(model_fname_parts[1:]),
+                            '/checkpoints/global_pytorch_' + \
+                            "_".join(model_fname_parts[1:]) + \
+                            FLAGS.result_suffix,
         # mark for change        
         'global_model_fn': FLAGS.experiment_name + \
-                            '/models/global_pytorch_' + "_".join(model_fname_parts[1:]) + ".m",
+                            '/models/global_pytorch_' +\
+                           "_".join(model_fname_parts[1:]) + \
+                           FLAGS.result_suffix + ".m",
         'X_val': X_val,
         'y_val': y_val,
         'cohorts_val': cohorts_val,
@@ -571,7 +641,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     model = model.cuda()
    
     model_dir = FLAGS.experiment_name + \
-        '/checkpoints/' + "_".join(model_fname_parts) # mark for change later
+        '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix # mark for change later
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     get_c = partial(get_criterion, criterion=criterion)
@@ -583,7 +653,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     
     joblib.dump(train_log, '{}/log'.format(model_dir))
     torch.save(model, FLAGS.experiment_name + '/models/' +
-               "_".join(model_fname_parts) + '.m') # mark for change
+               "_".join(model_fname_parts) + FLAGS.result_suffix + '.m') # mark for change
 
     ############### evaluation ###########
     cohort_aucs = []
@@ -604,7 +674,8 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
             cohort_aucs.append(auc)
         else:
             min_auc, max_auc, avg_auc = bootstrap_predict(
-                X_val, y_val, cohorts_val, task, y_pred, num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
+                X_val, y_val, cohorts_val, task, y_pred,
+                num_bootstrap_samples=FLAGS.num_val_bootstrap_samples)
             cohort_aucs.append(np.array([min_auc, max_auc, avg_auc]))
             print ("(min/max/average): ")
 
@@ -629,21 +700,27 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     # Save Results
     current_run_params = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
                           FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
+
+    # validation result # mark: maybe change later
+    val_auc_fname = 'val_auc_on_{}'.format(model_name) + suffix
+    fname_results = FLAGS.experiment_name + '/results/' + \
+        val_auc_fname + FLAGS.result_suffix
+    
     try:
         print('appending results.')
-        global_model_results = np.load(fname_results)
-        global_model_key = np.load(fname_keys)
-        global_model_results = np.concatenate(
-            (global_model_results, np.expand_dims(cohort_aucs, 0)))
-        global_model_key = np.concatenate(
-            (global_model_key, np.array([current_run_params])))
+        model_results = np.load(fname_results)
+        model_key = np.load(fname_keys)
+        model_results = np.concatenate(
+            (model_results, np.expand_dims(cohort_aucs, 0)))
+        model_key = np.concatenate(
+            (model_key, np.array([current_run_params])))
 
     except Exception as e:
-        global_model_results = np.expand_dims(cohort_aucs, 0)
-        global_model_key = np.array([current_run_params])
+        model_results = np.expand_dims(cohort_aucs, 0)
+        model_key = np.array([current_run_params])
 
-    np.save(fname_results, global_model_results) # mark for change
-    np.save(fname_keys, global_model_key)  # mark for change
+    np.save(fname_results, model_results) # mark for change
+    np.save(fname_keys, model_key)  # mark for change
     print('Saved {} results.'.format(model_name))
 
 def main():
@@ -662,9 +739,7 @@ def main():
     sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
     sw = '' if FLAGS.model_type == 'SEPARATE' else sw
     fname_keys = FLAGS.experiment_name + '/results/' + \
-        '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + '.npy'
-    fname_results = FLAGS.experiment_name + '/results/' + \
-        '_'.join([FLAGS.model_type.lower(), 'model_results', sw]) + '.npy'
+        '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + FLAGS.result_suffix + '.npy'
 
     # Check that we haven't already run this configuration
     if os.path.exists(fname_keys) and not FLAGS.repeats_allowed:
@@ -732,7 +807,7 @@ def main():
         # mark for change
         model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] # the last is pmt
         global_model_fn = FLAGS.experiment_name + \
-            '/models/global_pytorch_' + "_".join(model_fname_parts) + ".m"
+            '/models/global_pytorch_' + "_".join(model_fname_parts) + FLAGS.result_suffix + ".m"
         net = torch.load(global_model_fn)
 
         # if True: # this is used to investigate how stable bs is for pmt_importance todo: delete
@@ -758,7 +833,7 @@ def main():
     run_model_args = [X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,
-                      all_tasks, fname_keys, fname_results,
+                      all_tasks, fname_keys,
                       FLAGS, samp_weights]
 
     if FLAGS.model_type == 'SEPARATE':

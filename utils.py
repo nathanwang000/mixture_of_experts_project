@@ -250,6 +250,9 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
                   (" early stopping..." if stop else ""))
 
             # update log
+            if do_es:
+                name, value = val_name_value
+                train_report.update(dict([("val_" + name, value)])) 
             if val_loader:
                 val_report = dict(('val_' + name, f(net, val_loader))\
                                   for name, f in report_criteria)

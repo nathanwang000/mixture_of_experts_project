@@ -38,6 +38,8 @@ def get_args():
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
+    parser.add_argument("--result_suffix", type=str, default='', # jw: added to differentiate different runs
+                        help="this will add to the end of results")
     parser.add_argument("--data_hours", type=int, default=24,
                         help="The number of hours of data to use in making the prediction. \
         Type: int. Default: 24.")
@@ -663,7 +665,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
         test_auc_fname = 'test_auc_on_separate_' + suffix
         np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs)
+                test_auc_fname + FLAGS.result_suffix, cohort_aucs)
         return
 
     # otherwise, create and train a model
@@ -816,7 +818,7 @@ def run_global_model(X_train, y_train, cohorts_train,
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
         test_auc_fname = 'test_auc_on_global_' + suffix
         np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs)
+                test_auc_fname + FLAGS.result_suffix, cohort_aucs)
         return
 
     model = create_single_task_model(FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
@@ -985,7 +987,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
         test_auc_fname = 'test_auc_on_multitask_' + suffix
         np.save(FLAGS.experiment_name + '/results/' +
-                test_auc_fname, cohort_aucs)
+                test_auc_fname + FLAGS.result_suffix, cohort_aucs)
         return
 
     # model
@@ -1274,9 +1276,9 @@ if __name__ == "__main__":
     sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
     sw = '' if FLAGS.model_type == 'SEPARATE' else sw
     fname_keys = FLAGS.experiment_name + '/results/' + \
-        '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + '.npy'
+        '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + FLAGS.result_suffix + '.npy'
     fname_results = FLAGS.experiment_name + '/results/' + \
-        '_'.join([FLAGS.model_type.lower(), 'model_results', sw]) + '.npy'
+        '_'.join([FLAGS.model_type.lower(), 'model_results', sw]) + FLAGS.result_suffix + '.npy'
 
     # Check that we haven't already run this configuration
     if os.path.exists(fname_keys) and not FLAGS.repeats_allowed:
