@@ -90,8 +90,8 @@ def get_args(): # adapted from run_mortality_prediction.py
         test set. Adding the flag will result in saving minimum, maximum and average AUCs on bo6otstrapped samples of the test dataset. ")
     parser.add_argument("--num_bootstrap_samples", type=int, default=100,
                         help="Number of bootstrapping samples to evaluate on for the test set. Type: int. Default: 100. ")
-    parser.add_argument("--gpu_num", type=str, default='5', 
-                        help="Limit GPU usage to specific GPUs. Specify multiple GPUs with the format '0,1,2'. Type: String. Default: '0'.")
+    # parser.add_argument("--gpu_num", type=str, default='5', 
+    #                     help="Limit GPU usage to specific GPUs. Specify multiple GPUs with the format '0,1,2'. Type: String. Default: '0'.") # this is handled elsewhere
 
     args = parser.parse_args()
     print(args)
@@ -427,10 +427,11 @@ def create_mtl_pt_model(model_args):
 ###### run
 def get_model_fname_parts(model_name, FLAGS):
     # mark change later        
-    model_fname_parts = [model_name, 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers',
+    model_fname_parts = [model_name, FLAGS.num_lstm_layers,
                          str(FLAGS.lstm_layer_size), 'units',
                          str(FLAGS.num_dense_shared_layers), 'dense_shared',
                          str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
+    model_fname_parts = [str(p) for p in model_fname_parts]
     if FLAGS.sample_weights:
         model_fname_parts.append("sw")
     if FLAGS.pmt:
@@ -443,12 +444,13 @@ def get_setting(FLAGS):
     I have to say, whoever the original author was, she wrote terrible code
     I'm not paid to refactor someone's code :(
     '''
+    # mark
     # todo: change key to include all args {("mtl", selected_frozen_args) }
     # then it should point to a list of names of experiments ran with this setting
     # then when I do hp search, I can start from here
     # this would affect ['results', 'models', 'checkpoints']
     setting = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-                   FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
+               FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
     if FLAGS.model_type == "MULTITASK":
         setting = setting + \
             [FLAGS.num_multi_layers, FLAGS.multi_layer_size]
@@ -660,11 +662,8 @@ def main():
     FLAGS = get_args()
     if not FLAGS.random_run:
         make_deterministic()
-
-    # Limit GPU usage.
-    os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_num
-
-    # Make folders for the results & models
+ 
+   # Make folders for the results & models
     for folder in ['results', 'models', 'checkpoints']:
         if not os.path.exists(os.path.join(FLAGS.experiment_name, folder)):
             os.makedirs(os.path.join(FLAGS.experiment_name, folder))

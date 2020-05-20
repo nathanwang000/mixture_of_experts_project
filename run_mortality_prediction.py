@@ -1272,7 +1272,7 @@ if __name__ == "__main__":
         set_random_seed(2)
 
     # Limit GPU usage.
-    os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_num
+    # os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_num # jw: handles externally
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True  # Don't use all GPUs
     config.allow_soft_placement = True  # Enable manual control

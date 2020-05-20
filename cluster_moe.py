@@ -1,5 +1,5 @@
 import os, re, copy
-os.environ["CUDA_VISIBLE_DEVICES"]="5"
+# os.environ["CUDA_VISIBLE_DEVICES"]="5" # jw: handles externally
 from functools import partial
 import torch
 from torch import nn
@@ -33,18 +33,21 @@ from models import Global_MIMIC_Cluster_Model
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam")
+    parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")    
     parser.add_argument("--model_type", type=str, default='AE',
                         choices=['AE', 'INPUT', 'GLOBAL', 'VAL_CURVE'],
                         help="indicating \
         which type of model to run. Type: String.")
     parser.add_argument("--pmt", action="store_true", default=False)
-    parser.add_argument("--pt", action="store_false", default=True, help='use pretrained global model')
+    parser.add_argument("--not_pt", action="store_true", default=False,
+                        help='not use pretrained global model when training validation curve')
     parser.add_argument("--latent_dim", type=int, default=100, #50, \
         help='The embedding size, or latent dimension of the autoencoder. Type: int. Default: 50.')
     parser.add_argument("--ae_epochs", type=int, default=100, \
         help='Number of epochs to train autoencoder. Type: int. Default: 100.')
-    parser.add_argument("--ae_learning_rate", type=float, default=0.001, #0.0001, \
-        help='Learning rate for autoencoder. Type: float. Default: 0.0001.')
+    # parser.add_argument("--ae_learning_rate", type=float, default=0.001, #0.0001, \
+    #     help='Learning rate for autoencoder. Type: float. Default: 0.0001.') # jw: use lr instead
     parser.add_argument("--num_clusters", type=int, default=3, \
         help='Number of clusters for GMM. Type: int. Default: 3.')
     parser.add_argument("--gmm_tol", type=float, default=0.0001,
@@ -121,7 +124,7 @@ def train_seq_ae(X_train, X_val, FLAGS):
         encoder (Keras model): trained model to encode to latent space.
         sequence autoencoer (Keras model): trained autoencoder.
     """
-    encoder, sequence_autoencoder = create_seq_ae(X_train, X_val, FLAGS.latent_dim, FLAGS.ae_learning_rate)
+    encoder, sequence_autoencoder = create_seq_ae(X_train, X_val, FLAGS.latent_dim, FLAGS.lr)
     early_stopping = EarlyStopping(monitor='val_loss', patience=3)
 
     fname_suffix = get_suffix_fname_model(FLAGS)
@@ -181,8 +184,8 @@ def train_assignment(FLAGS, k, assignment, loader, n_epochs=50,
         net = net.cuda()
 
     opt = torch.optim.Adam(net.parameters(),
-                           lr=0.001,
-                           weight_decay=0)
+                           lr=FLAGS.lr,
+                           weight_decay=FLAGS.wd)
     get_c = partial(get_criterion, criterion=criterion)
     net, train_log = train(net, train_loader, criterion, opt, n_epochs, verbose=True,
                            val_loader=val_loader,
@@ -312,7 +315,9 @@ def train_val_curve(cluster_args):
     k = FLAGS.num_clusters
     assignment, experts_epochs = val_curve_kmeans(curves, k=k, niters=10)
 
-    if FLAGS.pt:
+    if FLAGS.not_pt:    
+        net = None
+    else:
         net = torch.load(global_model_fn)
         net.rest[-2] = nn.Linear(net.rest[-2].in_features, k).cuda()
         net.rest = net.rest[:-1] # drop sigmoid layer
