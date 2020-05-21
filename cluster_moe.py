@@ -33,6 +33,11 @@ from models import Global_MIMIC_Cluster_Model
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")
+    parser.add_argument("--result_suffix", type=str, default='',
+                        help="this will add to the end of every saved files")    
+    parser.add_argument("--global_model_fn",
+                        type=str, default=None, help="name of the global model to load")        
     parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam")
     parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")    
     parser.add_argument("--model_type", type=str, default='AE',
@@ -99,7 +104,10 @@ def val_curve_kmeans(curves, k=2, niters=10):
 
 def get_suffix_fname_model(FLAGS):
     '''common model suffix'''
-    # mark change later
+    # secondary mark change later
+    if FLAGS.runname is not None:
+        return FLAGS.runname
+    
     fname_parts = [FLAGS.latent_dim, FLAGS.data_hours]
     if FLAGS.pmt:
         fname_parts.append("pmt")
@@ -107,7 +115,10 @@ def get_suffix_fname_model(FLAGS):
 
 def get_suffix_fname_cluster(FLAGS):
     '''common cluster model suffix'''
-    # mark change later
+    # secondary mark change later
+    if FLAGS.runname is not None:
+        return FLAGS.runname
+    
     fname_parts = [FLAGS.model_type, FLAGS.num_clusters, FLAGS.data_hours]
     if FLAGS.pmt:
         fname_parts.append("pmt")
@@ -347,8 +358,13 @@ def main():
     cohorts_train, cohorts_val, cohorts_test = stratified_split(X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
 
     # mark for change
-    global_model_dir = "mortality_test/checkpoints/global_pytorch_lstm_shared_1_layers_16_units_0_dense_shared_0_dense_units_mortality/"    
-    global_model_fn = "mortality_test/models/global_pytorch_lstm_shared_1_layers_16_units_0_dense_shared_0_dense_units_mortality.m"
+    if FLAGS.global_model_fn is not None:
+        # drop ".m"
+        global_model_dir = "mortality_test/checkpoints/{}".format(FLAGS.global_model_fn[:-2])
+        global_model_fn = "mortality_test/models/{}".format(FLAGS.global_model_fn)
+    else:
+        global_model_dir = "mortality_test/checkpoints/global_pytorch_lstm_shared_1_layers_16_units_0_dense_shared_0_dense_units_mortality/"    
+        global_model_fn = "mortality_test/models/global_pytorch_lstm_shared_1_layers_16_units_0_dense_shared_0_dense_units_mortality.m"
     if FLAGS.pmt:
         net = torch.load(global_model_fn)
 
@@ -386,11 +402,15 @@ def main():
     elif FLAGS.model_type == 'VAL_CURVE':
         cluster_preds = train_val_curve(cluster_args)
 
-    # mark maybe change later
     if not os.path.exists('cluster_membership/'):
         os.makedirs('cluster_membership/')
-    model_name = FLAGS.model_type + ("_pmt" if FLAGS.pmt else "")
-    np.save('cluster_membership/' + model_name + "_" + FLAGS.save_to_fname, cluster_preds)
+    # secondary mark maybe change later
+    if FLAGS.runname is not None:
+        savename = FLAGS.runname + FLAGS.result_suffix + ".npy"
+    else:
+        model_name = FLAGS.model_type + ("_pmt" if FLAGS.pmt else "")
+        savename = model_name + "_" + FLAGS.save_to_fname
+    np.save('cluster_membership/' + savename, cluster_preds)
 
 if __name__ == "__main__":
     main()

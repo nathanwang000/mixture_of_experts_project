@@ -219,7 +219,7 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
             os.system('mkdir -p {}'.format(savename))
             torch.save(net, savename + '/epoch{}.m'.format(i))
         
-        for x, y in loader:
+        for j, (x, y) in enumerate(loader):
             x, y = x.cuda(), y.cuda()
             opt.zero_grad()
             o = net(x)

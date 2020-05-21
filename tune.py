@@ -66,7 +66,7 @@ def run(filename, tasks, gpus, n_concurrent_process):
         my_env = os.environ.copy()
         gid = gpu_manager.assign_gpu()
         my_env['CUDA_VISIBLE_DEVICES'] = str(gid)
-        procs.append([subprocess.Popen(commands, env=my_env), gid])
+        procs.append([subprocess.Popen(command, env=my_env), gid])
 
         # keep a loop of checking processes
         while True:

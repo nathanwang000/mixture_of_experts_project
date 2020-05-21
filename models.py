@@ -33,7 +33,7 @@ class Global_MIMIC_Cluster_Model(nn.Module):
         # additional dense layers
         input_dim = units
         for l in range(num_dense_shared_layers):
-            model.extend([nn.Linear(units, dense_shared_layer_size),
+            model.extend([nn.Linear(input_dim, dense_shared_layer_size),
                           nn.ReLU()])
             input_dim = dense_shared_layer_size
 
@@ -68,7 +68,7 @@ class Global_MIMIC_Model(nn.Module):
         # additional dense layers
         input_dim = units
         for l in range(num_dense_shared_layers):
-            model.extend([nn.Linear(units, dense_shared_layer_size),
+            model.extend([nn.Linear(input_dim, dense_shared_layer_size),
                           nn.ReLU()])
             input_dim = dense_shared_layer_size
 
@@ -102,7 +102,7 @@ class MoE_MIMIC_Model(nn.Module):
         model = []
         input_dim = units
         for l in range(num_dense_shared_layers):
-            model.extend([nn.Linear(units, dense_shared_layer_size),
+            model.extend([nn.Linear(input_dim, dense_shared_layer_size),
                           nn.ReLU()])
             input_dim = dense_shared_layer_size
         self.shared = nn.Sequential(*model)
@@ -127,10 +127,11 @@ class MoE_MIMIC_Model(nn.Module):
         '''assumes batch first'''
         batch_size = x.shape[0]
         h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
-        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda() 
+        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        self.lstm.flatten_parameters()                
         o, (h, c) = self.lstm(x, (h, c))
         o = self.shared(h[-1])
-        return self.moe(o)
+        return torch.clamp(self.moe(o), 0, 1) # rarely need to be clamped, numerical issue in pytorch
 
 class MTL_MIMIC_Model(nn.Module):
 
@@ -152,7 +153,7 @@ class MTL_MIMIC_Model(nn.Module):
         model = []
         input_dim = units
         for l in range(num_dense_shared_layers):
-            model.extend([nn.Linear(units, dense_shared_layer_size),
+            model.extend([nn.Linear(input_dim, dense_shared_layer_size),
                           nn.ReLU()])
             input_dim = dense_shared_layer_size
 
@@ -175,7 +176,8 @@ class MTL_MIMIC_Model(nn.Module):
         '''assumes batch first'''
         batch_size = x.shape[0]
         h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
-        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda() 
+        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        self.lstm.flatten_parameters()                
         o, (h, c) = self.lstm(x, (h, c))
         o = self.shared(h[-1]) # use last layer
         

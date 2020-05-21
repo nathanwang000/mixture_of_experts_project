@@ -25,8 +25,11 @@ from utils import train, get_criterion, get_output
 
 def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam")
-    parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")    
+    parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")
+    parser.add_argument("--global_model_fn",
+                        type=str, default=None, help="name of the global model to load")        
+    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam")   
+    parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
@@ -90,7 +93,7 @@ def get_args(): # adapted from run_mortality_prediction.py
         test set. Adding the flag will result in saving minimum, maximum and average AUCs on bo6otstrapped samples of the test dataset. ")
     parser.add_argument("--num_bootstrap_samples", type=int, default=100,
                         help="Number of bootstrapping samples to evaluate on for the test set. Type: int. Default: 100. ")
-    # parser.add_argument("--gpu_num", type=str, default='5', 
+    # parser.add_argument("--gpu_num", type=str, default='5',
     #                     help="Limit GPU usage to specific GPUs. Specify multiple GPUs with the format '0,1,2'. Type: String. Default: '0'.") # this is handled elsewhere
 
     args = parser.parse_args()
@@ -106,7 +109,7 @@ def make_deterministic():
     torch.manual_seed(3)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
+
 def cohorts2clusters(cohorts, all_tasks):
     '''turn an array of str to array of int'''
     res = np.zeros_like(cohorts)
@@ -123,15 +126,15 @@ def get_output_mtl(net, X, y, clusters, device='cuda'):
         x = x.to(device)
         assert y_z.shape[1] in [2, 3], "only y, z, optional sample weight"
         y, z = y_z[:, 0], y_z[:, 1]
-        
+
         # from net(x) of shape (n_tasks, bs, 1) to (bs, 1), where x is (bs, T, d)
         o_ = torch.stack(net(x))[z.long(), torch.arange(len(x))]
-        o.append(o_.detach().cpu().numpy()) 
-    net.train()        
+        o.append(o_.detach().cpu().numpy())
+    net.train()
     return np.vstack(o)
 
 def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
-    ''' 
+    '''
     X: numpy array of size (n, T, d)
     y: numpy array of size (n,)
     net: pytorch model
@@ -141,7 +144,7 @@ def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
     if bs == None or bs >= n:
         bs = n
         X, y = X_orig, y_orig
-        y_pred_orig = get_output(net, create_loader(X, y))        
+        y_pred_orig = get_output(net, create_loader(X, y))
 
     fps = 0
     for _ in range(n_pmt):
@@ -150,7 +153,7 @@ def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
             indices = np.random.choice(len(X_orig), bs)
             X, y = X_orig[indices], y_orig[indices]
             y_pred_orig = get_output(net, create_loader(X, y))
-        
+
         fp = [] # todo: currently doesn't consider correlation
         indices = np.random.choice(len(X), bs)
         X_ = X[indices]
@@ -185,7 +188,7 @@ def sample_weighted_bce_loss(yhat, y):
         criterion = nn.BCELoss()
         l = criterion(yhat, y)
     return l
-    
+
 def mtl_loss(yhat, y_z):
     '''
     yhat: a list of k element with (n, 1) shape in each element
@@ -195,7 +198,7 @@ def mtl_loss(yhat, y_z):
     w = None # sample_weights
     if y_z.shape[1] == 3:
         w = y_z[:, 2]
-    
+
     y, z = y_z[:, 0], y_z[:, 1]
     # from (k, n, 1) to (n, 1)
     yhat = torch.stack(yhat)[z.long(), torch.arange(y.shape[0])].view(-1)
@@ -240,8 +243,8 @@ def create_loader(X, y, samp_weights=None, batch_size=100, shuffle=False):
 
 ###### models
 def create_snapshot_model(model_args):
-    """ 
-    Create snapshot models with LSTM layer(s), shared dense layer(s), and sigmoided output. 
+    """
+    Create snapshot models with LSTM layer(s), shared dense layer(s), and sigmoided output.
     model_args: a dictionary with the following keys
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
@@ -255,7 +258,7 @@ def create_snapshot_model(model_args):
         y_val: validation y (n,)
         cohorts_val: cluster assignment val (n,)
         FLAGS: arguments in this file
-    Returns: 
+    Returns:
         PyTorch model
     """
     # similar to create_separate_model but with experts pretrained
@@ -286,8 +289,8 @@ def create_snapshot_model(model_args):
     return model
 
 def create_separate_model(model_args):
-    """ 
-    Create independent models with LSTM layer(s), shared dense layer(s), and sigmoided output. 
+    """
+    Create independent models with LSTM layer(s), shared dense layer(s), and sigmoided output.
     model_args: a dictionary with the following keys
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
@@ -296,7 +299,7 @@ def create_separate_model(model_args):
         input_dim (int): Number of features in the input.
         output_dim (int): Number of outputs (1 for binary tasks).
         tasks (list): list of the tasks.
-    Returns: 
+    Returns:
         PyTorch model
     """
     experts = nn.ModuleList()
@@ -314,8 +317,8 @@ def create_separate_model(model_args):
     return model
 
 def create_global_pytorch_model(model_args):
-    """ 
-    Create a global pytorch model with LSTM layer(s), shared dense layer(s), and sigmoided output. 
+    """
+    Create a global pytorch model with LSTM layer(s), shared dense layer(s), and sigmoided output.
     model_args: a dictionary with the following keys
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
@@ -323,7 +326,7 @@ def create_global_pytorch_model(model_args):
         dense_shared_layer_size (int): Number of units in each dense layer.
         input_dim (int): Number of features in the input.
         output_dim (int): Number of outputs (1 for binary tasks).
-    Returns: 
+    Returns:
         PyTorch model
     """
     model = Global_MIMIC_Model(model_args['n_layers'],
@@ -336,21 +339,21 @@ def create_global_pytorch_model(model_args):
     return model
 
 def create_moe_model(model_args):
-    """ 
-    Create a moe model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
-    and separate sigmoided outputs. 
+    """
+    Create a moe model with LSTM layer(s), shared dense layer(s), separate dense layer(s)
+    and separate sigmoided outputs.
     model_args: a dictionary with the following keys
         input_dim (int): Number of features in the input.
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
         num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
         dense_shared_layer_size (int): Number of units in each dense layer.
-        n_multi_layers (int): Number of task-specific dense layers. 
+        n_multi_layers (int): Number of task-specific dense layers.
         multi_layer_size (int): Number of units in each task-specific dense layer.
         output_dim (int): Number of outputs (1 for binary tasks).
         tasks (list): list of the tasks.
-    Returns: 
-        final_model (Keras model): A compiled model with the provided architecture. 
+    Returns:
+        final_model (Keras model): A compiled model with the provided architecture.
     """
     model = MoE_MIMIC_Model(model_args["input_dim"],
                             model_args["n_layers"],
@@ -364,20 +367,20 @@ def create_moe_model(model_args):
     return model
 
 def create_mtl_model(model_args):
-    """ 
-    Create a mtl model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
-    and separate sigmoided outputs. 
+    """
+    Create a mtl model with LSTM layer(s), shared dense layer(s), separate dense layer(s)
+    and separate sigmoided outputs.
     model_args: a dictionary with the following keys
         input_dim (int): Number of features in the input.
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
         num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
         dense_shared_layer_size (int): Number of units in each dense layer.
-        n_multi_layers (int): Number of task-specific dense layers. 
+        n_multi_layers (int): Number of task-specific dense layers.
         multi_layer_size (int): Number of units in each task-specific dense layer.
         output_dim (int): Number of outputs (1 for binary tasks).
         tasks (list): list of the tasks.
-    Returns: 
+    Returns:
         final PyTorch model
     """
     model = MTL_MIMIC_Model(model_args["input_dim"],
@@ -392,21 +395,21 @@ def create_mtl_model(model_args):
     return model
 
 def create_mtl_pt_model(model_args):
-    """ 
-    Create a mtl model with LSTM layer(s), shared dense layer(s), separate dense layer(s) 
-    and separate sigmoided outputs. 
+    """
+    Create a mtl model with LSTM layer(s), shared dense layer(s), separate dense layer(s)
+    and separate sigmoided outputs.
     model_args: a dictionary with the following keys
         input_dim (int): Number of features in the input.
         n_layers (int): Number of initial LSTM layers.
         units (int): Number of units in each LSTM layer.
         num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
         dense_shared_layer_size (int): Number of units in each dense layer.
-        n_multi_layers (int): Number of task-specific dense layers. 
+        n_multi_layers (int): Number of task-specific dense layers.
         multi_layer_size (int): Number of units in each task-specific dense layer.
         output_dim (int): Number of outputs (1 for binary tasks).
         tasks (list): list of the tasks.
         global_model_fn (str): global best model fn
-    Returns: 
+    Returns:
         final PyTorch model
     """
     global_model = torch.load(model_args['global_model_fn'])
@@ -426,7 +429,13 @@ def create_mtl_pt_model(model_args):
 
 ###### run
 def get_model_fname_parts(model_name, FLAGS):
-    # mark change later        
+    '''
+    affect how the data are saved in ['results', 'checkpoints', 'models']
+    '''
+    # secondary mark change later
+    if FLAGS.runname is not None:
+        return [FLAGS.runname]
+    
     model_fname_parts = [model_name, FLAGS.num_lstm_layers,
                          str(FLAGS.lstm_layer_size), 'units',
                          str(FLAGS.num_dense_shared_layers), 'dense_shared',
@@ -438,26 +447,8 @@ def get_model_fname_parts(model_name, FLAGS):
         model_fname_parts.append("pmt")
     return model_fname_parts
 
-def get_setting(FLAGS):
-    '''
-    return the setting Jen used to keep track of experiments ran
-    I have to say, whoever the original author was, she wrote terrible code
-    I'm not paid to refactor someone's code :(
-    '''
-    # mark
-    # todo: change key to include all args {("mtl", selected_frozen_args) }
-    # then it should point to a list of names of experiments ran with this setting
-    # then when I do hp search, I can start from here
-    # this would affect ['results', 'models', 'checkpoints']
-    setting = [FLAGS.num_lstm_layers, FLAGS.lstm_layer_size,
-               FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size]
-    if FLAGS.model_type == "MULTITASK":
-        setting = setting + \
-            [FLAGS.num_multi_layers, FLAGS.multi_layer_size]
-    return np.array(setting)
-    
 def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
-    ''' 
+    '''
     model: pytorch model
     X: (n, d) numpy array
     y: (n,) numpy array
@@ -502,7 +493,7 @@ def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
         min_auc, max_auc, avg_auc = np.min(all_aucs), np.max(all_aucs), np.mean(all_aucs)
         print('{} Model AUC Macro: [min: {}, max: {}, avg: {}]'.format(model_name,
                                                                        min_auc, max_auc, avg_auc))
-        
+
         # Micro AUC
         all_micro_aucs = bootstrap_predict(X, y, cohorts, 'all', y_pred,
                                            return_everything=True, test=True,
@@ -523,17 +514,20 @@ def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
         # Micro AUC
         micro_auc = roc_auc_score(y, y_pred)
         cohort_aucs.append(micro_auc)
-        print('{} Model AUC Micro: {}'.format(model_name, cohort_aucs[-1]))        
+        print('{} Model AUC Micro: {}'.format(model_name, cohort_aucs[-1]))
 
     return cohort_aucs
 
 def save_cohort_aucs(cohort_aucs, fname, FLAGS):
-    # mark for future change        
-    suffix = ""
-    if FLAGS.sample_weights:
-        suffix += "_sw"
-    if FLAGS.pmt:
-        suffix += "_pmt"
+    # secondary mark for future change
+    if FLAGS.runname is not None:
+        suffix = FLAGS.runname + "_"
+    else:
+        suffix = ""
+        if FLAGS.sample_weights:
+            suffix += "_sw_"
+        if FLAGS.pmt:
+            suffix += "_pmt_"
     suffix += 'single' if not FLAGS.bootstrap else 'all'
     auc_fname = '{}_{}'.format(fname, suffix)
     np.save(FLAGS.experiment_name + '/results/' +
@@ -544,28 +538,28 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                       X_test, y_test, cohorts_test,
                       all_tasks, FLAGS, samp_weights):
     """
-    Train and evaluate pytorch models. 
+    Train and evaluate pytorch models.
     Results are saved in FLAGS.experiment_name/results:
-        - The numpy file ending in '_keys' contains the parameters for the model, 
-          and the numpy file ending in '_results' contains the validation AUCs for that 
-          configuration. 
-        - If you run multiple configurations for the same experiment name, 
+        - The numpy file ending in '_keys' contains the parameters for the model,
+          and the numpy file ending in '_results' contains the validation AUCs for that
+          configuration.
+        - If you run multiple configurations for the same experiment name,
           those parameters and results will append to the same files.
-        - At test time, results are saved into the file beginning 'test_auc_on_{model_name}'. 
-          The format of results will depend on whether you use bootstrapping or not. With bootstrapping, 
-          minimum, maximum and average AUCs are saved. Without, just the single AUC on the actual 
-          val / test dataset is saved. 
+        - At test time, results are saved into the file beginning 'test_auc_on_{model_name}'.
+          The format of results will depend on whether you use bootstrapping or not. With bootstrapping,
+          minimum, maximum and average AUCs are saved. Without, just the single AUC on the actual
+          val / test dataset is saved.
     Args:
         model_name: model name when saved
         create_model: a function for creating the specific model
         X_train (Numpy array): The X matrix w training examples.
-        y_train (Numpy array): The y matrix w training examples. 
-        cohorts_train (Numpy array): List of cohort membership for each validation example. 
+        y_train (Numpy array): The y matrix w training examples.
+        cohorts_train (Numpy array): List of cohort membership for each validation example.
         X_val (Numpy array): The X matrix w validation examples.
-        y_val (Numpy array): The y matrix w validation examples. 
+        y_val (Numpy array): The y matrix w validation examples.
         cohorts_val (Numpy array): List of cohort membership for each validation example.
         X_test (Numpy array): The X matrix w testing examples.
-        y_test (Numpy array): The y matrix w testing examples. 
+        y_test (Numpy array): The y matrix w testing examples.
         cohorts_test (Numpy array): List of cohort membership for each testing example.
         all_tasks (Numpy array/list): List of tasks.
         FLAGS (dictionary): all the arguments.
@@ -595,9 +589,27 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         criterion = sample_weighted_bce_loss
         train_loader = create_loader(X_train, y_train, samp_weights=samp_weights,
                                      batch_size=batch_size, shuffle=True)
-        # no samp_weights for val; samp_weights is only for train        
+        # no samp_weights for val; samp_weights is only for train
         val_loader = create_loader(X_val, y_val, batch_size=batch_size, shuffle=False)
 
+    # secondary mark
+    if FLAGS.global_model_fn is None:
+        global_model_dir = FLAGS.experiment_name + \
+                           '/checkpoints/global_pytorch_' + \
+                           "_".join(model_fname_parts[1:]) + \
+                           FLAGS.result_suffix
+        global_model_fn = FLAGS.experiment_name + \
+                         '/models/global_pytorch_' +\
+                         "_".join(model_fname_parts[1:]) + \
+                         FLAGS.result_suffix + ".m",
+    else:
+        global_model_dir = FLAGS.experiment_name + \
+                           '/checkpoints/' + \
+                           FLAGS.global_model_fn[:-2] # drop ".m"
+        global_model_fn = FLAGS.experiment_name + \
+                         '/models/' +\
+                         FLAGS.global_model_fn
+        
     model_args = {
         'n_layers': FLAGS.num_lstm_layers,
         'units': FLAGS.lstm_layer_size,
@@ -608,16 +620,8 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         'n_multi_layers': FLAGS.num_multi_layers, # mtl layers
         'multi_units': FLAGS.multi_layer_size,
         'tasks': all_tasks,
-        # mark for change
-        'global_model_dir': FLAGS.experiment_name + \
-                            '/checkpoints/global_pytorch_' + \
-                            "_".join(model_fname_parts[1:]) + \
-                            FLAGS.result_suffix,
-        # mark for change        
-        'global_model_fn': FLAGS.experiment_name + \
-                            '/models/global_pytorch_' +\
-                           "_".join(model_fname_parts[1:]) + \
-                           FLAGS.result_suffix + ".m",
+        'global_model_dir': global_model_dir,
+        'global_model_fn': global_model_fn,
         'X_val': X_val,
         'y_val': y_val,
         'cohorts_val': cohorts_val,
@@ -627,7 +631,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     model = create_model(model_args)
     model = model.cuda()
 
-    # secondary mark for change later    
+    # secondary mark for change later
     model_dir = FLAGS.experiment_name + \
         '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
 
@@ -638,9 +642,9 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                              val_loader = val_loader,
                              es_named_criterion = ('loss', get_c, True),
                              verbose=True)
-    
+
     joblib.dump(train_log, '{}/log'.format(model_dir))
-    # secondary mark for change    
+    # secondary mark for change
     torch.save(model, FLAGS.experiment_name + '/models/' +
                "_".join(model_fname_parts) + FLAGS.result_suffix + '.m')
 
@@ -649,12 +653,12 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     print('testing on validation set')
     cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
     save_cohort_aucs(cohort_aucs, 'val_auc_on_{}'.format(model_name), FLAGS)
-    
+
     # test
     print('testing on test set')
     cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
     save_cohort_aucs(cohort_aucs, 'test_auc_on_{}'.format(model_name), FLAGS)
-    
+
     print('Saved {} results.'.format(model_name))
 
 def main():
@@ -662,28 +666,11 @@ def main():
     FLAGS = get_args()
     if not FLAGS.random_run:
         make_deterministic()
- 
+
    # Make folders for the results & models
     for folder in ['results', 'models', 'checkpoints']:
         if not os.path.exists(os.path.join(FLAGS.experiment_name, folder)):
             os.makedirs(os.path.join(FLAGS.experiment_name, folder))
-
-    # The file that we'll save model configurations to
-    # secondary mark for future change
-    sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
-    sw = '' if FLAGS.model_type == 'SEPARATE' else sw
-    fname_keys = FLAGS.experiment_name + '/results/' + \
-        '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + FLAGS.result_suffix + '.npy'
-
-    # Check that we haven't already run this configuration
-    current_setting = get_setting(FLAGS)
-    if os.path.exists(fname_keys) and not FLAGS.repeats_allowed:
-        model_key = np.load(fname_keys)
-        print('Now running :', current_setting)
-        print('Have already run: ', model_key.tolist())
-        if current_setting in model_key.tolist():
-            print('Have already run this configuration. Now skipping this one.')
-            sys.exit(0)
 
     # Load Data
     X, Y, careunits, saps_quartile, subject_ids = load_processed_data(
@@ -730,18 +717,22 @@ def main():
 
     # Permutation importance
     if FLAGS.pmt:
-        # mark for change
-        model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] # the last is pmt
-        global_model_fn = FLAGS.experiment_name + \
-            '/models/global_pytorch_' + "_".join(model_fname_parts) + FLAGS.result_suffix + ".m"
+        # secondary mark for change
+        if FLAGS.global_model_fn is not None:
+            global_model_fn = FLAGS.experiment_name + \
+                '/models/' + FLAGS.global_model_fn
+        else:
+            model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] # the last is pmt
+            global_model_fn = FLAGS.experiment_name + \
+                '/models/global_pytorch_' + "_".join(model_fname_parts) + FLAGS.result_suffix + ".m"
         net = torch.load(global_model_fn)
 
-        # if True: # this is used to investigate how stable bs is for pmt_importance todo: delete
+        # if True: # this is used to investigate how stable bs is for pmt_importance
         #     for bs in [100, X_train.shape[0], 500, 2000, 5000, 10000]:
         #         feature_importance_fn = 'feature_importance{}.pkl'.format(bs)
         #         feature_importance = pmt_importance(net, X_train, y_train, bs=bs)
         #         joblib.dump(feature_importance, feature_importance_fn)
-            
+
         feature_importance_fn = 'feature_importance1000.pkl'
         if os.path.exists(feature_importance_fn):
             feature_importance = joblib.load(feature_importance_fn)
@@ -753,7 +744,7 @@ def main():
         X_train = X_train * feature_importance
         X_val = X_val * feature_importance
         X_test = X_test * feature_importance
-        X = X * feature_importance        
+        X = X * feature_importance
 
     # Run model
     run_model_args = [X_train, y_train, cohorts_train,
@@ -764,7 +755,7 @@ def main():
     if FLAGS.model_type == 'SEPARATE':
         run_pytorch_model('separate_mtl', create_separate_model, *run_model_args)
     elif FLAGS.model_type == 'GLOBAL':
-        run_pytorch_model('global_pytorch', create_global_pytorch_model, *run_model_args)        
+        run_pytorch_model('global_pytorch', create_global_pytorch_model, *run_model_args)
     elif FLAGS.model_type == 'MULTITASK':
         run_pytorch_model('mtl_pytorch', create_mtl_model, *run_model_args)
     elif FLAGS.model_type == 'MOE':
@@ -774,19 +765,5 @@ def main():
     elif FLAGS.model_type == 'MTL_PT': # pretrained MTL from global - specific layers
         run_pytorch_model('mtl_pt', create_mtl_pt_model, *run_model_args)
 
-    # save the setting
-    if os.path.exists(fname_keys):
-        # appending results
-        model_key = np.load(fname_keys)
-        try:
-            model_key = np.vstack((model_key, current_setting))
-        except:
-            model_key = current_setting
-    else:
-        model_key = current_setting
-    np.save(fname_keys, model_key)
-    
 if __name__ == "__main__":
     main()
-
-
