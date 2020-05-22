@@ -1139,12 +1139,20 @@ def load_processed_data(data_hours=24, gap_time=12):
         cmo = pd.read_csv('data/code_status.csv')
         cmo = cmo[cmo.cmo > 0]
         # cmo['timecmo_chart'] = pd.to_datetime(cmo.timecmo_chart) # ask: is it cmo_first_charttime?
-        # cmo['timecmo_nursingnote'] = pd.to_datetime(cmo.timecmo_nursingnote) # ask: is it cmo_nursingnote_charttime        
+        # cmo['timecmo_nursingnote'] = pd.to_datetime(cmo.timecmo_nursingnote) # ask: is it cmo_nursingnote_charttime
+        ''' jw: added by Harini: she uses on commit
+        https://github.com/mit-ddig/multitask-patients/commit/16c88914b10f5ca352b3cd9fdd076cf8bbe8a93d
+        she uses timednr_chart (which I don't have) from code-status
+        nor does the original code has it
+        https://github.com/MIT-LCP/mimic-code/blob/master/concepts/code-status.sql
+        I'm using dnr_first_charttime instead
+        '''
+        cmo['timednr_chart'] = pd.to_datetime(cmo.dnr_first_charttime) # ask: is it
         cmo['timecmo_chart'] = pd.to_datetime(cmo.cmo_first_charttime) # ask: is it cmo_first_charttime?        
         cmo['timecmo_nursingnote'] = pd.to_datetime(cmo.cmo_nursingnote_charttime) # ask: is it cmo_nursingnote_charttime
         
         cmo['cmo_min_time'] = cmo.loc[:, [
-            'timecmo_chart', 'timecmo_nursingnote']].min(axis=1)
+            'timednr_chart', 'timecmo_chart', 'timecmo_nursingnote']].min(axis=1)
         all_mort_times = pd.merge(deathtimes_valid, cmo, on=['subject_id', 'hadm_id', 'icustay_id'], how='outer')[
             ['subject_id', 'hadm_id', 'icustay_id', 'deathtime', 'dischtime', 'cmo_min_time']]
         all_mort_times['deathtime'] = pd.to_datetime(all_mort_times.deathtime)
