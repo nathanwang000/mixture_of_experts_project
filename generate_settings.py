@@ -10,8 +10,8 @@ from tune import run
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--global_model_fn", default=None, type=str,
-                        help="best global model file name in /mortality_test/models/, default=None")
+    parser.add_argument("--global_model_fn", default='20_global_exp.m', type=str,
+                        help="best global model file name in /mortality_test/models/, default=20_global_exp.m")
     parser.add_argument("--nc", default=1, type=int,
                         help="number of concurrent jobs, default 1")
     args = parser.parse_args()
@@ -73,178 +73,313 @@ def create_joint_settings(n_settings=30):
     joblib.dump(settings, fname)
     return settings
 
-def create_model_cluster_settings(global_model_fn, n_settings=30):
+def create_cluster_model_settings(n_settings=30):
     '''
     uses create_joint settings as base, assumes global model is given
     return model_settings, cluster_settings
+    
+    caution: user need to provide '--cohort_filepath' and '--global_model_fn'
     '''
-    assert global_model_fn is not None, "need global_model_fn"
 
-    model_settings, cluster_settings = [], []
+    cluster_settings, model_settings = [], []
     settings = create_joint_settings(n_settings)
 
-    fname = 'settings/model_cluster_settings.pkl'
+    fname = 'settings/cluster_model_settings.pkl'
     if os.path.exists(fname):
         print('settings already exists in {}, loading...'.format(fname))
-        model_settings, cluster_settings = joblib.load(fname)
-        if n_settings <= len(model_settings):
-            return model_settings[:n_settings], cluster_settings[:n_settings]
+        cluster_settings, model_settings = joblib.load(fname)
+        if n_settings <= len(cluster_settings):
+            return cluster_settings[:n_settings], model_settings[:n_settings]
         else:
-            n_settings -= len(model_settings) # continue generating
+            n_settings -= len(cluster_settings) # continue generating
             settings = settings[-n_settings:]
 
-    # create remaining model settings: continue from create_joint_settings
-    for setting in settings:
-        setting.append(('--global_model_fn', global_model_fn))         
-        if np.random.choice(2) == 1:
-            setting.append('--sample_weights')
-        if np.random.choice(2) == 1:
-            setting.append('--include_cohort_as_feature')
-        if np.random.choice(2) == 1:
-            setting.append('--pmt')
-        model_settings.append(setting)
-
-    # create remaining cluster settings
-    for _ in range(n_settings):
-        setting = [
-            ('--global_model_fn', global_model_fn),
-            ('--runname', str(len(cluster_settings))), # name of the saved model            
+    for i in range(n_settings):
+        # create remaining cluster settings
+        runname = str(len(cluster_settings))
+        cluster_setting = [
+            ('--runname', runname), # name of the saved model            
             ('--lr', 10**np.random.uniform(-2,-4)),
             ('--wd', 10**np.random.uniform(-3,-10)),
             ('--num_clusters', np.random.choice([2, 3, 4, 5])),
             ('--latent_dim', np.random.choice([16, 100, 300, 500]))]
         if np.random.choice(2) == 1:
-            setting.append('--pmt')
+            cluster_setting.append('--pmt')
         if np.random.choice(2) == 1:
-            setting.append('--not_pt') # only affect validation curve approach
-        cluster_settings.append(setting)
+            cluster_setting.append('--not_pt') # only affect validation curve approach
+        cluster_settings.append(cluster_setting)
+
+        # create remaining model settings: continue from create_joint_settings
+        # note model_setting already have runname, so no need to add again
+        model_setting = settings[i] # based on create_joint_settings
+        model_setting.append(('--cohorts', 'custom'))
+        if np.random.choice(2) == 1:
+            model_setting.append('--sample_weights')
+        # if np.random.choice(2) == 1: # todo: this increases dim, in conflict with pmt
+        #     model_setting.append('--include_cohort_as_feature')
+        if np.random.choice(2) == 1:
+            model_setting.append('--pmt')
+        model_settings.append(model_setting)
 
     # save the settings
     print('saving {}'.format(fname))
-    joblib.dump((model_settings, cluster_settings), fname)
-    return model_settings, cluster_settings
+    joblib.dump((cluster_settings, model_settings), fname)
+    return cluster_settings, model_settings
 
 ##### specific experiments
 # experiments that don't need clustering
-def experiment1(FLAGS, expname='moe_exp'):
+def experiment1(FLAGS, expname='moe_exp', test_time=False):
     '''
     MoE experiment
     '''
     settings = create_joint_settings()
     tasks = [[('--model_type', 'MOE'), ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment2(FLAGS, expname='global_exp'):
+def experiment2(FLAGS, expname='global_exp', test_time=False):
     '''
     Global model only experiment
     '''
     settings = create_joint_settings()
     tasks = [[('--model_type', 'GLOBAL'), ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]    
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment7(FLAGS, expname='MTL_first_unit_exp'):
+def experiment6(FLAGS, expname='MTL_careunit_exp', test_time=False):
     '''
-    first unit MTL
+    careunit MTL
     '''
     settings = create_joint_settings()
-    tasks = [[('--model_type', 'MULTITASK'), ('--result_suffix', '_' + expname)] +
+    tasks = [[('--model_type', 'MULTITASK'),
+              ('--cohorts', 'careunit'),
+              ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]    
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-# experiments that requires clustering
-def experiment3(FLAGS, expname='mtl_and_global_exp'):
+def experiment9(FLAGS, expname='MTL_saps_exp', test_time=False):
     '''
-    MTL + global
+    saps quartile based MTL
     '''
-    # todo: add custom
-    if FLAGS.global_model_fn is not None: return
-    model_settings, cluster_settings = create_model_cluster_settings(FLAGS.global_model_fn)
-    model_settings = [[('--model_type', 'MULTITASK'), ('--result_suffix', '_' + expname)] +
-                      setting for setting in model_settings]
-    cluster_settings = [[('--model_type', 'GLOBAL'), ('--result_suffix', '_' + expname)] +
-                        setting for setting in cluster_settings]
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'MULTITASK'),
+              ('--result_suffix', '_' + expname),
+              ('--cohorts', 'saps')] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]    
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-    # todo: acknowledge the temporal dependence between the runs
+def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False):
+    '''
+    careunit snapshot
+    '''
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'SNAPSHOT'),
+              ('--cohorts', 'careunit'),
+              ('--global_model_fn', FLAGS.global_model_fn),
+              ('--result_suffix', '_' + expname)] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]    
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+
+def experiment11(FLAGS, expname='snapshot_saps_exp', test_time=False):
+    '''
+    saps quartile based snapshot
+    '''
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'SNAPSHOT'),
+              ('--global_model_fn', FLAGS.global_model_fn),
+              ('--result_suffix', '_' + expname),
+              ('--cohorts', 'saps')] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]    
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+
+def experiment_debug(FLAGS, expname='debug', test_time=False):
+    '''
+    saps quartile based snapshot
+    '''
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'SNAPSHOT'),
+              ('--epochs', 0),              
+              ('--global_model_fn', FLAGS.global_model_fn),
+              ('--result_suffix', '_' + expname),
+              ('--cohorts', 'saps')] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]    
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+ 
+# experiments that requires clustering
+def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False):
+    '''
+    global clustering followed by mtl
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings()
+
+    #### debug
+    # idx = 23
+    # cluster_settings = cluster_settings[idx:idx+1]
+    # model_settings = model_settings[idx:idx+1]
+    
+    cluster_settings = [[('--model_type', 'GLOBAL'),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'MULTITASK'),                       
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),                       
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    idx = 11
-    print(model_settings[idx])
-    print(cluster_settings[idx])
-    # run('moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
-    # run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time'] + setting for setting in model_settings]    
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
+def experiment4(FLAGS, expname='ae_plus_mtl_exp', test_time=False):
+    '''
+    AE clustering followed by mtl
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings()
+    cluster_settings = [[('--model_type', 'AE'),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'MULTITASK'),                       
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),                       
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time'] + setting for setting in model_settings]        
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+
+def experiment5(FLAGS, expname='val_curve_plus_mtl_exp', test_time=False):
+    '''
+    val_curve clustering followed by mtl
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings()
+
+    # #### debug
+    idx = 27
+    cluster_settings = cluster_settings[idx:idx+1]
+    model_settings = model_settings[idx:idx+1]
+    
+    cluster_settings = [[('--model_type', 'VAL_CURVE'),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'MULTITASK'),                       
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),                       
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time'] + setting for setting in model_settings]        
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)    
+
+def experiment7(FLAGS, expname='global_plus_snapshot_exp', test_time=False):
+    '''
+    global clustering followed by snapshot
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings()
+
+    # # #### debug
+    # idx = 23
+    # cluster_settings = cluster_settings[idx:idx+1]
+    # model_settings = model_settings[idx:idx+1]
+    
+    cluster_settings = [[('--model_type', 'GLOBAL'),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'SNAPSHOT'),                       
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),                       
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time'] + setting for setting in model_settings]        
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)    
+        
+def experiment8(FLAGS, expname='val_curve_plus_snapshot_exp', test_time=False):
+    '''
+    val_curve clustering followed by snapshot
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings()
+
+    # # #### debug
+    # idx = 27
+    # cluster_settings = cluster_settings[idx:idx+1]
+    # model_settings = model_settings[idx:idx+1]
+    
+    cluster_settings = [[('--model_type', 'VAL_CURVE'),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'SNAPSHOT'),                       
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),                       
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time'] + setting for setting in model_settings]        
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)    
     
 def main():
     FLAGS = get_args()
-    # experiment1(FLAGS)
-    experiment2(FLAGS)
-    # experiment3(FLAGS)
-    # experiment4(FLAGS)
-    # experiment5(FLAGS)
-    # experiment6(FLAGS)
-    experiment7(FLAGS)
-    # experiment8(FLAGS)
-    # experiment9(FLAGS)
+    # experiment_debug(FLAGS)
+    experiment1(FLAGS, test_time=False)
+    # experiment2(FLAGS, test_time=True)
+    # experiment6(FLAGS, test_time=True)
+    # experiment9(FLAGS, test_time=True)
+    # experiment10(FLAGS, test_time=True)
+    # experiment11(FLAGS, test_time=True)
+
+    #### cluster and models
+    # experiment3(FLAGS, test_time=True) # ok
+    # experiment4(FLAGS, test_time=True) # ok
+    # experiment5(FLAGS, test_time=True) # bad; maybe revert back to gate in backup?
+    # experiment7(FLAGS, test_time=True) # running
+    # experiment8(FLAGS, test_time=True)
         
 if __name__ == '__main__':
     main()
-
-def old_main():
-    FLAGS = get_args()
-
-    # setting_dir = 'settings'
-    # if not os.path.exists(setting_dir):
-    #     os.makedirs(setting_dir)
-
-    # ### model running using first unit as cohorts
-    # ### e.g. mtl_pytorch, separate, global_pytorch, moe
-    # fname = 'model_settings.pkl'
-    # if os.path.exists(fname):
-    #         print('settings already exists in {}, skipping...'.format(fname))
-    # else:
-    #     print('creating {}'.format(fname))
-    #     settings = create_model_without_global_settings()
-    #     joblib.dump(settings, fname)
-
-    # ### model running using first unit as cohorts and requires a global model
-    # ### eg. snapshot, mtl_pt; pmt + snaphsot, pmt + mtl_pt,
-    # ### pmt + global_pytorch, pmt + mtl_pytorch, pmt + separate, pmt + moe
-    # '''
-    # need to add "--global_model_fn" to the setting already saved
-    # need to add "--pmt" to the setting already saved
-    # need to add "--not_pt" to the setting already saved
-    # '''
-
-    # '''clustering approaches must be followed by custom models
-    # for simplicity, I still assume global model_fn even if approaches like
-    # AE, and INPUT don't require a global model because down stream model may still require
-    # a global model: e.g., AE + SNAPSHOT
-    # '''
-    # ### clustering models that doesn't need global model
-    # ### e.g., AE, INPUT (too slow to run, maybe ommit)
-    # fname = 'cluster_settings.pkl'
-    # if os.path.exists(fname):
-    #         print('settings already exists in {}, skipping...'.format(fname))
-    # else:
-    #     print('creating {}'.format(fname))
-    #     settings = create_cluster_without_global_settings()
-    #     joblib.dump(settings, fname)
-
-    # ### clustering models that need a global model
-    # ### e.g., GLOBAL, VAL_CURVE, pmt + AE, pmt + INPUT, pmt + GLOBAL, pmt + VAL_CURVE
-    # '''
-    # need to add "--custom" to the setting already saved
-    # need to add "--global_model_fn" to the setting already saved
-    # need to add "--pmt" to the setting already saved
-    # need to add "--not_pt" to the setting already saved
-    # '''
-
-    # ### model running using custom cohorts
-    # ### e.g. mtl_pytorch, separate # no need to run global and moe b/c it's the same as before
-    # '''
-    # need to add "--custom" to the setting already saved
-    # need to add "--global_model_fn" to the setting already saved
-    # need to add "--pmt" to the setting already saved
-    # '''

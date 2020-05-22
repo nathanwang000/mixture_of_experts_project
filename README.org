@@ -1,3 +1,5 @@
+https://github.com/mit-ddig/multitask-patients
+
 * issues
 - [X] investigate why curves val stopped even though validation loss is still
   going down: this is due to multiple runs some runs has more epochs
@@ -11,6 +13,7 @@
 - [X] investigate why moe.py have model keys incompatible: b/c multitask and
   mtl_pytorch all uses multitask as prefix for registering the key
 - [X] moe combine can give something slightly > 1: solved by clipping output
+- [ ] make errors from runs in tune.py apparent!
 
 * code documentation
 ** run large scale experiment
@@ -54,26 +57,30 @@
     moe; after which do snapshot, and mtl_pt, and pmt versions of the previous approaches
     - [X] lr: 0.0001 (0.001 works much better)
     - [X] wd: 0 (0.1 doesn't make sense, try lower)
+    - [ ] num_lstm_layers: this wasn't searched before
     - [X] lstm_layer_size: 16 (300 works much better)
-    - [ ] num_dense_shared_layers: 0
-    - [ ] dense_shared_layer_size: 0
-    - [ ] num_multi_layers: 0 (only 0 or 1 supported for the original code)
-    - [ ] multi_layer_size: 0
+    - [X] num_dense_shared_layers: 0
+    - [X] dense_shared_layer_size: 0
+    - [X] num_multi_layers: 0 (only 0 or 1 supported for the original code)
+    - [X] multi_layer_size: 0
     # need to be handled differently: the following all need cohorts
-    - [ ] sample_weights: False
-    - [ ] include_cohort_as_feature: False
-    - [ ] pmt: search this after having the best global model
-  - [ ] the cluster side: random search; do this for AE, INPUT (too slow, maybe omit), GLOBAL,
+    - [X] sample_weights: False
+    - [ ] include_cohort_as_feature: False # this is in conflict with pmt
+    - [X] pmt: search this after having the best global model
+  - [X] the cluster side: random search; do this for AE, INPUT (too slow, maybe omit), GLOBAL,
     VAL_CURVE; then repeat with pmt
-    - [ ] latent_dim: 100
-    - [ ] lr: 0.001
-    - [ ] wd: 0
-    - [ ] num_clusters: 3
+    - [X] latent_dim: 100
+    - [X] lr: 0.001
+    - [X] wd: 0
+    - [X] num_clusters: 3
       # need to be handled differently
-    - [ ] pmt: search this after having the best global model
-    - [ ] not_pt: this requires having the best global model as well
-    - [ ] ae_epoch: 100 # probably don't change this
-    - [ ] gmm_tol: 0.0001 # probably don't change this
+    - [X] pmt: search this after having the best global model
+    - [X] not_pt: this requires having the best global model as well
+    - [X] ae_epoch: 100 # probably don't change this
+    - [X] gmm_tol: 0.0001 # probably don't change this
+  - [X] hyper-parameters partial dependence plot
+  - [ ] get experiment 3 running
+  - [ ] get all other experiments running (3:00-4:00)
 
       
 *** result summary

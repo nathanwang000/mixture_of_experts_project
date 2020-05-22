@@ -28,7 +28,7 @@ from sklearn.mixture import GaussianMixture
 from generate_clusters import create_seq_ae
 from sklearn.externals import joblib
 from utils import train, get_criterion, get_output, get_y, get_x, random_split_dataset
-from moe import create_loader
+from moe import create_loader, pmt_importance
 from models import Global_MIMIC_Cluster_Model
 
 def get_args():
@@ -51,8 +51,10 @@ def get_args():
         help='The embedding size, or latent dimension of the autoencoder. Type: int. Default: 50.')
     parser.add_argument("--ae_epochs", type=int, default=100, \
         help='Number of epochs to train autoencoder. Type: int. Default: 100.')
+    
     # parser.add_argument("--ae_learning_rate", type=float, default=0.001, #0.0001, \
     #     help='Learning rate for autoencoder. Type: float. Default: 0.0001.') # jw: use lr instead
+    
     parser.add_argument("--num_clusters", type=int, default=3, \
         help='Number of clusters for GMM. Type: int. Default: 3.')
     parser.add_argument("--gmm_tol", type=float, default=0.0001,
@@ -106,7 +108,7 @@ def get_suffix_fname_model(FLAGS):
     '''common model suffix'''
     # secondary mark change later
     if FLAGS.runname is not None:
-        return FLAGS.runname
+        return FLAGS.runname # + FLAGS.result_suffix # don't need this b/c it is for model
     
     fname_parts = [FLAGS.latent_dim, FLAGS.data_hours]
     if FLAGS.pmt:
@@ -117,11 +119,13 @@ def get_suffix_fname_cluster(FLAGS):
     '''common cluster model suffix'''
     # secondary mark change later
     if FLAGS.runname is not None:
-        return FLAGS.runname
+        return FLAGS.runname # + FLAGS.result_suffix # don't need this b/c it is for model
     
     fname_parts = [FLAGS.model_type, FLAGS.num_clusters, FLAGS.data_hours]
     if FLAGS.pmt:
         fname_parts.append("pmt")
+    if not FLAGS.not_pt:
+        fname_parts.append("pt")
     return "_".join(map(str, fname_parts))
 
 def train_seq_ae(X_train, X_val, FLAGS):
@@ -162,17 +166,15 @@ def train_seq_ae(X_train, X_val, FLAGS):
     sequence_autoencoder.save(seq_ae_fn)
     return encoder, sequence_autoencoder
 
-def train_assignment(FLAGS, k, assignment, loader, n_epochs=50,
-                     net=None, criterion=nn.CrossEntropyLoss()):
+def train_assignment(FLAGS, k, assignment, loader, savename_suffix,
+                     n_epochs=50, net=None,
+                     criterion=nn.CrossEntropyLoss()):
     ''' 
     assignment: (n,) cluster assignments array
     mapp from input to assignment
     '''
     fname_suffix = get_suffix_fname_cluster(FLAGS)
-    gate_fn = 'clustering_models/gate_{}'.format(fname_suffix)
-    if net is not None:
-        gate_fn += "_pt" # pretrained
-    gate_fn += '.m'
+    gate_fn = 'clustering_models/gate_{}{}.m'.format(fname_suffix, savename_suffix)
 
     print(gate_fn)
     if os.path.exists(gate_fn):
@@ -206,7 +208,7 @@ def train_assignment(FLAGS, k, assignment, loader, n_epochs=50,
     joblib.dump(train_log, gate_fn[:-2] + '_log')
     return net
 
-def gmm_fit_and_predict(embedded_train, embedded_all, FLAGS):
+def gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix):
     '''
     embedded_train: training data for gmm (n_tr, d) array
     embedded_all: all data for gmm (n, d) array
@@ -214,7 +216,7 @@ def gmm_fit_and_predict(embedded_train, embedded_all, FLAGS):
         numpy array embeddings
     '''
     fname_suffix = get_suffix_fname_cluster(FLAGS)
-    gmm_fn_name = 'clustering_models/gmm_{}'.format(fname_suffix)
+    gmm_fn_name = 'clustering_models/gmm_{}{}'.format(fname_suffix, savename_suffix)
     if os.path.exists(gmm_fn_name):
         gm = joblib.load(gmm_fn_name)
     else:
@@ -249,7 +251,7 @@ def train_ae(cluster_args):
     # Get Embeddings
     embedded_train = encoder.predict(X_train)
     embedded_all = encoder.predict(X)
-    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS)
+    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix="_ae")
 
 def train_input(cluster_args):
     '''cluster on the input space'''
@@ -261,7 +263,7 @@ def train_input(cluster_args):
     # Get Embeddings: flatten T dimension
     embedded_train = X_train.reshape(X_train.shape[0], -1)
     embedded_all = X.reshape(X.shape[0], -1)
-    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS)
+    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix="_input")
 
 def train_global(cluster_args):
     '''
@@ -288,7 +290,7 @@ def train_global(cluster_args):
     # Get Embeddings:    
     embedded_train = get_output(global_model, create_loader(X_train, y_train))
     embedded_all = get_output(global_model, create_loader(X, y))
-    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS)
+    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix="_global")
     
 def train_val_curve(cluster_args):
     # 1. learn validation curve: save as snapshot; reuse the code
@@ -332,7 +334,7 @@ def train_val_curve(cluster_args):
         net = torch.load(global_model_fn)
         net.rest[-2] = nn.Linear(net.rest[-2].in_features, k).cuda()
         net.rest = net.rest[:-1] # drop sigmoid layer
-    gate = train_assignment(FLAGS, k, assignment, val_loader, net=net)
+    gate = train_assignment(FLAGS, k, assignment, val_loader, net=net, savename_suffix="_val_curve")
 
     # # for debug
     # cluster_preds_val = get_output(gate, create_loader(X_val, y_val)).argmax(1)
@@ -368,7 +370,7 @@ def main():
     if FLAGS.pmt:
         net = torch.load(global_model_fn)
 
-        feature_importance_fn = 'feature_importance_bs1000.pkl'
+        feature_importance_fn = 'feature_importance1000.pkl'
         if os.path.exists(feature_importance_fn):
             feature_importance = joblib.load(feature_importance_fn)
         else:

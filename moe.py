@@ -112,7 +112,7 @@ def make_deterministic():
 
 def cohorts2clusters(cohorts, all_tasks):
     '''turn an array of str to array of int'''
-    res = np.zeros_like(cohorts)
+    res = np.zeros(cohorts.shape)
     for i, task in enumerate(all_tasks):
         res[cohorts==task] = i
     return res.astype(int)
@@ -122,7 +122,7 @@ def get_output_mtl(net, X, y, clusters, device='cuda'):
     loader = create_mtl_loader(X, y, clusters, shuffle=False)
     net.eval()
     o = []
-    for x, y_z in loader:
+    for i, (x, y_z) in enumerate(loader):
         x = x.to(device)
         assert y_z.shape[1] in [2, 3], "only y, z, optional sample weight"
         y, z = y_z[:, 0], y_z[:, 1]
@@ -130,6 +130,7 @@ def get_output_mtl(net, X, y, clusters, device='cuda'):
         # from net(x) of shape (n_tasks, bs, 1) to (bs, 1), where x is (bs, T, d)
         o_ = torch.stack(net(x))[z.long(), torch.arange(len(x))]
         o.append(o_.detach().cpu().numpy())
+        
     net.train()
     return np.vstack(o)
 
@@ -278,7 +279,10 @@ def create_snapshot_model(model_args):
             x_val_in_task = X_val[cohorts_val == task]
             y_val_in_task = y_val[cohorts_val == task]
             y_pred_in_task = y_pred[cohorts_val == task]
-            auc = roc_auc_score(y_val_in_task, y_pred_in_task)
+            try:
+                auc = roc_auc_score(y_val_in_task, y_pred_in_task)
+            except:
+                auc = 0.1 # slightly larger than 0 but shouldn't be selected
             if auc > experts_auc[i][1]:
                 experts_auc[i] = (net, auc)
 
@@ -518,12 +522,12 @@ def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
 
     return cohort_aucs
 
-def save_cohort_aucs(cohort_aucs, fname, FLAGS):
+def save_cohort_aucs(cohort_aucs, model_name, fname, FLAGS):
     # secondary mark for future change
     if FLAGS.runname is not None:
         suffix = FLAGS.runname + "_"
     else:
-        suffix = ""
+        suffix = model_name
         if FLAGS.sample_weights:
             suffix += "_sw_"
         if FLAGS.pmt:
@@ -572,8 +576,14 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
             FLAGS.result_suffix + '.m' # secondary mark for future change
         model = torch.load(model_path)
 
+        print('testing on validation set')
+        cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
+        save_cohort_aucs(cohort_aucs, model_name, 'val_auc_on', FLAGS)
+
+        # test
+        print('testing on test set')
         cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
-        save_cohort_aucs(cohort_aucs, 'test_auc_on_{}'.format(model_name), FLAGS)
+        save_cohort_aucs(cohort_aucs, model_name, 'test_auc_on', FLAGS)
         return
 
     batch_size = 100
@@ -634,7 +644,9 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     # secondary mark for change later
     model_dir = FLAGS.experiment_name + \
         '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
-
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.wd)
     get_c = partial(get_criterion, criterion=criterion)
     model, train_log = train(model, train_loader, criterion, optimizer, FLAGS.epochs,
@@ -652,12 +664,12 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     # validation
     print('testing on validation set')
     cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
-    save_cohort_aucs(cohort_aucs, 'val_auc_on_{}'.format(model_name), FLAGS)
+    save_cohort_aucs(cohort_aucs, model_name, 'val_auc_on', FLAGS)
 
     # test
     print('testing on test set')
     cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
-    save_cohort_aucs(cohort_aucs, 'test_auc_on_{}'.format(model_name), FLAGS)
+    save_cohort_aucs(cohort_aucs, model_name, 'test_auc_on', FLAGS)
 
     print('Saved {} results.'.format(model_name))
 
