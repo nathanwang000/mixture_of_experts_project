@@ -15,6 +15,48 @@ from models import MoO, AdaptiveGate, MLP
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Subset
+import sparse
+from run_mortality_prediction import load_processed_data
+
+def load_data(dataname, FLAGS):
+    '''
+    RETURN
+        X: (n, T, d)
+        Y: (n,)
+        cohort_col: (n,) of strings of cohort names
+    '''
+    datanames = ['mimic', 'eicu']
+    assert dataname in datanames, "now only support [{}]".format(", ".join(datanames))
+    if dataname == 'mimic':
+        X, Y, careunits, saps_quartile, subject_ids = load_processed_data(FLAGS.data_hours,
+                                                                          FLAGS.gap_time)
+        Y = Y.astype(int)
+        print('X shape {}'.format(X.shape))
+
+        # Split
+        if FLAGS.cohorts == 'careunit':
+            cohort_col = careunits
+        elif FLAGS.cohorts == 'saps':
+            cohort_col = saps_quartile
+        elif FLAGS.cohorts == 'custom':
+            cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
+            cohort_col = np.array([str(c) for c in cohort_col])
+            
+    else: # eicu: mortality_task
+        X = sparse.load_npz('eICU_data/mortality/X.npz').todense() # (n, T, d1)
+        s = sparse.load_npz('eICU_data/mortality/s.npz').todense() # (n, d2)
+        # concat X and s
+        s = np.repeat(s.reshape(s.shape[0], 1, s.shape[1]), X.shape[1], axis=1) # (n, T, d2)
+        X = X.concatenate((X, s), axis=2) # (n, T, d1 + d2)
+        Y = pd.read_csv('eICU_data/population/mortality_48h.csv').values
+
+        if FLAGS.cohorts == 'custom':
+            cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
+            cohort_col = np.array([str(c) for c in cohort_col])
+        else:
+            cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
+
+    return X, Y, cohort_col
 
 def get_subset_batch(dataset, indices):
     '''return a batch of data given indices'''

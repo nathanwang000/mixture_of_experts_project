@@ -23,16 +23,19 @@ from keras.layers import Input, LSTM, RepeatVector
 from keras.optimizers import Adam
 from keras.models import load_model
 from keras.callbacks import EarlyStopping
-from run_mortality_prediction import stratified_split, load_processed_data
+from run_mortality_prediction import stratified_split
 from sklearn.mixture import GaussianMixture
 from generate_clusters import create_seq_ae
 from sklearn.externals import joblib
-from utils import train, get_criterion, get_output, get_y, get_x, random_split_dataset
+from utils import train, get_criterion, get_output, get_y, get_x, random_split_dataset, load_data
 from moe import create_loader, pmt_importance
 from models import Global_MIMIC_Cluster_Model
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataname", type=str, default='mimic',
+                        choices=['mimic', 'eicu'],
+                        help="indicating which data to run. Type: String.")    
     parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")
     parser.add_argument("--result_suffix", type=str, default='',
                         help="this will add to the end of every saved files")    
@@ -349,10 +352,7 @@ def main():
     FLAGS = get_args()
 
     # Load Data
-    X, Y, careunits, saps_quartile, subject_ids = load_processed_data(FLAGS.data_hours, FLAGS.gap_time)
-    Y = Y.astype(int)
-    print('X shape {}'.format(X.shape))
-    cohort_col = careunits
+    X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
 
     # Train, val, test split
     X_train, X_val, X_test, \

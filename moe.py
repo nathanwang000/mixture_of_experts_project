@@ -19,12 +19,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from sklearn.externals import joblib
 
-from run_mortality_prediction import load_processed_data, stratified_split, bootstrap_predict
+from run_mortality_prediction import stratified_split, bootstrap_predict
 from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model, Separate_MIMIC_Model
-from utils import train, get_criterion, get_output
+from utils import train, get_criterion, get_output, load_data
 
 def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataname", type=str, default='mimic',
+                        choices=['mimic', 'eicu'],
+                        help="indicating which data to run. Type: String.")
     parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")    
     parser.add_argument("--global_model_fn",
                         type=str, default=None, help="name of the global model to load")        
@@ -714,18 +717,7 @@ def main():
             os.makedirs(os.path.join(FLAGS.experiment_name, folder))
 
     # Load Data
-    X, Y, careunits, saps_quartile, subject_ids = load_processed_data(
-        FLAGS.data_hours, FLAGS.gap_time)
-    Y = Y.astype(int)
-
-    # Split
-    if FLAGS.cohorts == 'careunit':
-        cohort_col = careunits
-    elif FLAGS.cohorts == 'saps':
-        cohort_col = saps_quartile
-    elif FLAGS.cohorts == 'custom':
-        cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
-        cohort_col = np.array([str(c) for c in cohort_col])
+    X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
 
     # Include cohort membership as an additional feature
     if FLAGS.include_cohort_as_feature:
