@@ -90,11 +90,10 @@ class MoE_MIMIC_Model(nn.Module):
 
     ''' moe model for mimic dataset'''
     def __init__(self, input_dim, n_layers, units, num_dense_shared_layers,
-                 dense_shared_layer_size, n_multi_layers, multi_units, output_dim, tasks):
+                 dense_shared_layer_size, n_multi_layers, multi_units, output_dim, n_tasks):
         super(self.__class__, self).__init__()
         self.num_layers = n_layers
         self.hidden_size = units
-        n_tasks = len(tasks)
         
         # shared part
         self.lstm = nn.LSTM(input_dim, units, n_layers, batch_first=True)

@@ -1,5 +1,35 @@
 https://github.com/mit-ddig/multitask-patients
+* code documentation
+** run large scale experiment
+   generate_settings: generate settings and run experiments
+   it depends on tune.py to do parallel running
 
+   tune.py: tuning code to specify number of parallel jobs
+** model code: example usage in Makefile
+   run_mortality_prediction.py: Jen's code to model
+   moe.py: my modeling code
+
+** clustering code: example usage in Makefile
+   generate_clusters.py: Jen's code to perform clustering
+   cluster_moe.py: my code to perform clustering
+
+* left to finish
+  1. [X] see the performance of random initialization on clean template
+     12:30 - 1:00
+  2. [X] see performance on default parameters by running "make careunit; make
+     cluster; make custom"
+     1:00 - 1:30
+  3. [X] lunch 1:30 - 2:30
+  4. [X] visualize clusters with tsne 2:30 - 3:30
+  5. [X] investigate why saps does so well? I should be able to do the same with
+     output based quartile; I could try include saps as feature to manually tune
+     one (bad performance); not working;  3:30 - 4:30
+  6. [ ] Writeup 4:30 - 6:30
+  7. [X] music/sport 6:30 - 7:30
+  8. [X] dinner 7:30 - 8:30
+  9. [ ] writing 9:00 - 11:00
+  10. [ ] eICU: rest of the time
+     
 * issues
 - [X] investigate why curves val stopped even though validation loss is still
   going down: this is due to multiple runs some runs has more epochs
@@ -13,24 +43,11 @@ https://github.com/mit-ddig/multitask-patients
 - [X] investigate why moe.py have model keys incompatible: b/c multitask and
   mtl_pytorch all uses multitask as prefix for registering the key
 - [X] moe combine can give something slightly > 1: solved by clipping output
-- [ ] make errors from runs in tune.py apparent!
+- [X] debug why some settings didn't run
+  - note: the val_curve_plus_mtl_exp performance dropped perhaps due to
+    different gating function learned?
 
-* code documentation
-** run large scale experiment
-   tune.py: tuning code to specify number of parallel jobs
-
-** generate settings to run
-   generate_settings: create settings.pkl file containing settings to run
-
-** model code: example usage in Makefile
-   run_mortality_prediction.py: Jen's code to model
-   moe.py: my modeling code
-
-** clustering code: example usage in Makefile
-   generate_clusters.py: Jen's code to perform clustering
-   cluster_moe.py: my code to perform clustering
-
-* TODO data check
+* data check
 
 - [X] check that I can reproduce table 1
 - [X] check the result matches
@@ -57,7 +74,7 @@ https://github.com/mit-ddig/multitask-patients
     moe; after which do snapshot, and mtl_pt, and pmt versions of the previous approaches
     - [X] lr: 0.0001 (0.001 works much better)
     - [X] wd: 0 (0.1 doesn't make sense, try lower)
-    - [ ] num_lstm_layers: this wasn't searched before
+    - [X] num_lstm_layers: this wasn't searched
     - [X] lstm_layer_size: 16 (300 works much better)
     - [X] num_dense_shared_layers: 0
     - [X] dense_shared_layer_size: 0
@@ -79,9 +96,7 @@ https://github.com/mit-ddig/multitask-patients
     - [X] ae_epoch: 100 # probably don't change this
     - [X] gmm_tol: 0.0001 # probably don't change this
   - [X] hyper-parameters partial dependence plot
-  - [ ] get experiment 3 running
-  - [ ] get all other experiments running (3:00-4:00)
-
+  - [X] rerun using the new dataset
       
 *** result summary
 note: * uses 109 features, whereas else uses 29 features in paper
@@ -171,10 +186,27 @@ X is of shape: (32825, 24, 714); paper reported 32686
 This stats is very similar to Table 1 and 
 
 ** some renamings possibly due to difference in version?
-static.csv: static_data.csv
-X.h5: read_hdf(all_hourly_data.h5, vitals_labs_mean)
-code_status.csv: rename timecmo_chart => cmo_first_charttime; rename
+code-status and sapsii are from
+https://github.com/MIT-LCP/mimic-code/blob/master/concepts/code-status.sql
+#+BEGIN_SRC 
+\copy (select * from code_status )to '/data6/jiaxuan/code_status.csv' with csv header;
+\copy (select * from sapsii )to '/data6/jiaxuan/saps.csv' with csv header;
+#+END_SRC
+Harini and Gen used sapsii instead of saps
+
+code_status.csv: rename 
+timecmo_chart => cmo_first_charttime
 timecmo_nursingnote => cmo_nursingnote_charttime
+timednr_chart => dnr_first_charttime
+
+From mdl4:/data6/jiaxuan/MIMIC_Extract/data/curated/
+static.csv: static_data.csv
+X.h5: read_hdf("all_hourly_data.h5", "vitals_labs_mean")
+I'm using the subset given in used physiological variables section below
+the resulting file is named all_hourly_data_subset.pkl
+
+The saved generated data from the paper are in
+data/mortality_{hours}/
 
 * result documentation
 
@@ -351,7 +383,12 @@ subject_id hadm_id icustay_id hours_in                                          
 
 * database commands
 
+code-status are from
+https://github.com/MIT-LCP/mimic-code/blob/master/concepts/code-status.sql
+
+#+BEGIN_SRC 
 \copy (select * from code_status )to '/data6/jiaxuan/code_status.csv' with csv header;
+#+END_SRC
 
 * used physiological variables 
 
@@ -579,3 +616,35 @@ The saved file is called  "all_hourly_data_subset.pkl"
     
     Training MTL is treated like multi-label classification with a mask indicating the true task
 
+* debug settings
+
+** mtl saps
+
+#+BEGIN_SRC python
+settings = [[ # this setting gives 0.874 micro auc, val auc 0.878
+    ('--lr', 0.001), ('--wd', 1e-4)
+]]
+
+tasks = [[('--model_type', 'MULTITASK'),
+          ('--epochs', 100),              
+          ('--global_model_fn', FLAGS.global_model_fn),
+          ('--result_suffix', '_' + expname),
+          ('--cohorts', 'saps')] +
+         setting for setting in settings]
+#+END_SRC
+
+** global saps as feature
+
+#+BEGIN_SRC python
+    settings = [[
+        ('--lr', 0.001), ('--wd', 1e-4)
+    ]]
+
+    tasks = [[('--model_type', 'GLOBAL'), # test auc: 0.872, val auc: 0.880
+              ('--epochs', 100),
+              ('--global_model_fn', FLAGS.global_model_fn),
+              ('--result_suffix', '_' + expname),
+              '--include_cohort_as_feature',
+              ('--cohorts', 'saps')] +
+             setting for setting in settings]
+#+END_SRC

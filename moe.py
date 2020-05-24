@@ -25,11 +25,13 @@ from utils import train, get_criterion, get_output
 
 def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")
+    parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")    
     parser.add_argument("--global_model_fn",
                         type=str, default=None, help="name of the global model to load")        
     parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam")   
     parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")
+    parser.add_argument("--num_clusters", type=int, default=3, \
+        help='Number of clusters for MoE. Type: int. Default: 3.')    
     parser.add_argument("--experiment_name", type=str, default='mortality_test',
                         help="This will become the name of the folder where are the models and results \
         are stored. Type: String. Default: 'mortality_test'.")
@@ -85,9 +87,12 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--repeats_allowed", action="store_true", default=False,
                         help="Indicator flag allowing training and evaluating of existing models. Without this flag, \
         if you run a configuration for which you've already saved models & results, it will be skipped.")
+    parser.add_argument("--viz_time", action="store_true", default=False,
+                        help="Indicator flag of whether we are in visualization time. With this flag, we will load in the already trained model \
+        of the specified configuration, and evaluate it on the validation set. ")
     parser.add_argument("--test_time", action="store_true", default=False,
                         help="Indicator flag of whether we are in testing time. With this flag, we will load in the already trained model \
-        of the specified configuration, and evaluate it on the test set. ")
+        of the specified configuration, and evaluate it on the test and validation set. ")
     parser.add_argument("--bootstrap", action="store_true", default=False,
                         help="Indicator flag of whether to evaluate on bootstrapped samples of the test set, or just the single \
         test set. Adding the flag will result in saving minimum, maximum and average AUCs on bo6otstrapped samples of the test dataset. ")
@@ -170,6 +175,20 @@ def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
 
     return np.abs(fps / n_pmt).mean(0) # (d,)
 
+def save_output(model, model_name, X, y, cohorts, all_tasks, fname, FLAGS):
+    if 'mtl' in model_name:
+        y_pred = get_output_mtl(model, X, y,
+                                cohorts2clusters(cohorts, all_tasks)).ravel()
+    else:
+        loader = create_loader(X, y)        
+        y_pred = get_output(model, loader).ravel()
+
+    # secondary mark for future change
+    if FLAGS.runname is not None:
+        fname += "_"  + FLAGS.runname
+    joblib.dump((y_pred, y, cohorts), FLAGS.experiment_name + '/results/' +
+                fname + FLAGS.result_suffix + '.pkl')
+        
 ###### losses
 def sample_weighted_bce_loss(yhat, y):
     '''
@@ -367,7 +386,7 @@ def create_moe_model(model_args):
                             model_args["n_multi_layers"],
                             model_args["multi_units"],
                             model_args["output_dim"],
-                            model_args["tasks"])
+                            model_args["FLAGS"].num_clusters)
     return model
 
 def create_mtl_model(model_args):
@@ -527,11 +546,11 @@ def save_cohort_aucs(cohort_aucs, model_name, fname, FLAGS):
     if FLAGS.runname is not None:
         suffix = FLAGS.runname + "_"
     else:
-        suffix = model_name
+        suffix = model_name + "_"
         if FLAGS.sample_weights:
-            suffix += "_sw_"
+            suffix += "sw_"
         if FLAGS.pmt:
-            suffix += "_pmt_"
+            suffix += "pmt_"
     suffix += 'single' if not FLAGS.bootstrap else 'all'
     auc_fname = '{}_{}'.format(fname, suffix)
     np.save(FLAGS.experiment_name + '/results/' +
@@ -570,6 +589,16 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         samp_weights: sample weights
     """
     model_fname_parts = get_model_fname_parts(model_name, FLAGS)
+    if FLAGS.viz_time:
+        model_path = FLAGS.experiment_name + \
+            '/models/' + "_".join(model_fname_parts) + \
+            FLAGS.result_suffix + '.m' # secondary mark for future change
+        model = torch.load(model_path)
+
+        # save output
+        save_output(model, model_name, X_val, y_val, cohorts_val, all_tasks, "output", FLAGS)
+        return
+        
     if FLAGS.test_time:
         model_path = FLAGS.experiment_name + \
             '/models/' + "_".join(model_fname_parts) + \
@@ -706,10 +735,16 @@ def main():
         X = np.concatenate((X, cohort_col_onehot), axis=-1)
 
     # Train, val, test split
-    X_train, X_val, X_test, \
-        y_train, y_val, y_test, \
-        cohorts_train, cohorts_val, cohorts_test = stratified_split(
-            X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
+    if FLAGS.viz_time:
+        X_train, X_val, X_test, \
+            y_train, y_val, y_test, \
+            cohorts_train, cohorts_val, cohorts_test = X, X, X, \
+                Y, Y, Y, cohort_col, cohort_col, cohort_col
+    else:
+        X_train, X_val, X_test, \
+            y_train, y_val, y_test, \
+            cohorts_train, cohorts_val, cohorts_test = stratified_split(
+                X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
 
     # Sample Weights
     task_weights = dict()

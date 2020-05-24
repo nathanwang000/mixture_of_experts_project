@@ -1,10 +1,5 @@
 #!/bin/bash
 
-function global_pytorch() {
-    python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --result_suffix $1
-    python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --test_time --result_suffix $1
-}
-
 function global_keras() {
     python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --repeats_allowed --result_suffix $1
     python run_mortality_prediction.py --model_type GLOBAL --epochs 100 --repeats_allowed --test_time --result_suffix $1
@@ -13,6 +8,16 @@ function global_keras() {
 function mtl_keras() {
     python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --repeats_allowed --result_suffix $1
     python run_mortality_prediction.py --model_type MULTITASK --epochs 100 --repeats_allowed --test_time --result_suffix $1
+}
+
+function separate_keras() {
+    python run_mortality_prediction.py --model_type SEPARATE --epochs 100 --repeats_allowed --result_suffix $1
+    python run_mortality_prediction.py --model_type SEPARATE --epochs 100 --repeats_allowed --test_time --result_suffix $1
+}
+
+function global_pytorch() {
+    python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --result_suffix $1
+    python moe.py --model_type GLOBAL --epochs 100 --repeats_allowed --test_time --result_suffix $1
 }
 
 function mtl_pytorch() {
