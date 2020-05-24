@@ -451,8 +451,8 @@ def main():
     FLAGS = get_args()
     experiment_debug(FLAGS, viz_time=False)
 
-    # experiment1(FLAGS, test_time=False)
-    # experiment2(FLAGS, test_time=False)
+    # experiment1(FLAGS, test_time=False) # must
+    # experiment2(FLAGS, test_time=False) # must
     # experiment6(FLAGS, test_time=False)
     # experiment9(FLAGS, test_time=False)
     # experiment12(FLAGS, test_time=False)
@@ -463,11 +463,11 @@ def main():
     # experiment11(FLAGS, test_time=False)
 
     #### cluster and models
-    # experiment3(FLAGS, test_time=False)
-    # experiment4(FLAGS, test_time=False)
-    # experiment5(FLAGS, test_time=False) # d
-    # experiment7(FLAGS, test_time=False)
-    # experiment8(FLAGS, test_time=False) # d
+    # experiment3(FLAGS, test_time=False) # must
+    # experiment4(FLAGS, test_time=False) # must
+    # experiment5(FLAGS, test_time=False) # d, good to have
+    # experiment7(FLAGS, test_time=False) # good to have
+    # experiment8(FLAGS, test_time=False) # d, good to have
 
 if __name__ == '__main__':
     main()
