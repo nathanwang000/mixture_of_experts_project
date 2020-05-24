@@ -25,6 +25,7 @@ def load_data(dataname, FLAGS):
         Y: (n,)
         cohort_col: (n,) of strings of cohort names
     '''
+    print("dataname is: {}".format(dataname))
     datanames = ['mimic', 'eicu']
     assert dataname in datanames, "now only support [{}]".format(", ".join(datanames))
     if dataname == 'mimic':
@@ -41,14 +42,43 @@ def load_data(dataname, FLAGS):
         elif FLAGS.cohorts == 'custom':
             cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
+    elif dataname == 'eicu':
+        print('using eICU cohort {}'.format(FLAGS.eicu_cohort))
+        if FLAGS.eicu_cohort == 'ARF4':
+            Y = pd.read_csv('eICU_data/population/ARF_4.0h.csv')['ARF_LABEL'].values
+            X = sparse.load_npz('eICU_data/ARF_4.0h_download/X.npz') # (n, T, d1)
+            s = sparse.load_npz('eICU_data/ARF_4.0h_download/s.npz') # (n, d2)
+        elif FLAGS.eicu_cohort == 'ARF12':
+            Y = pd.read_csv('eICU_data/population/ARF_12.0h.csv')['ARF_LABEL'].values
+            X = sparse.load_npz('eICU_data/ARF_12.0h/X.npz') # (n, T, d1)
+            s = sparse.load_npz('eICU_data/ARF_12.0h/s.npz') # (n, d2)
+        elif FLAGS.eicu_cohort == 'Shock4':
+            Y = pd.read_csv('eICU_data/population/Shock_4.0h.csv')['Shock_LABEL'].values
+            X = sparse.load_npz('eICU_data/Shock_4.0h_download/X.npz') # (n, T, d1)
+            s = sparse.load_npz('eICU_data/Shock_4.0h_download/s.npz') # (n, d2)
+        elif FLAGS.eicu_cohort == 'Shock12':
+            Y = pd.read_csv('eICU_data/population/Shock_12.0h.csv')['Shock_LABEL'].values
+            X = sparse.load_npz('eICU_data/Shock_12.0h/X.npz') # (n, T, d1)
+            s = sparse.load_npz('eICU_data/Shock_12.0h/s.npz') # (n, d2)
+        elif FLAGS.eicu_cohort == 'mortality':
+            Y = pd.read_csv('eICU_data/population/mortality_48h.csv')['mortality_LABEL'].values        
+            X = sparse.load_npz('eICU_data/mortality/X.npz') # (n, T, d1)
+            s = sparse.load_npz('eICU_data/mortality/s.npz') # (n, d2)
             
-    else: # eicu: mortality_task
-        X = sparse.load_npz('eICU_data/mortality/X.npz').todense() # (n, T, d1)
-        s = sparse.load_npz('eICU_data/mortality/s.npz').todense() # (n, d2)
         # concat X and s
-        s = np.repeat(s.reshape(s.shape[0], 1, s.shape[1]), X.shape[1], axis=1) # (n, T, d2)
-        X = X.concatenate((X, s), axis=2) # (n, T, d1 + d2)
-        Y = pd.read_csv('eICU_data/population/mortality_48h.csv').values
+        X = sparse.concatenate(
+            (
+                X, # (n, T, d1)
+                sparse.concatenate(
+                    # (n, d2) => (n, 1, d2) => (n, T, d2)
+                    [s.reshape((-1, 1, s.shape[1]))] * X.shape[1],
+                    axis=1)
+            ),
+            axis=2
+        ) # about 32g memory for mortality
+
+        print('prior to todense')
+        X = X.todense()
 
         if FLAGS.cohorts == 'custom':
             cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
@@ -56,6 +86,7 @@ def load_data(dataname, FLAGS):
         else:
             cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
 
+    print('finished loading data')
     return X, Y, cohort_col
 
 def get_subset_batch(dataset, indices):

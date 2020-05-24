@@ -130,24 +130,27 @@ def create_cluster_model_settings(n_settings=30):
 
 ##### specific experiments
 # experiments that don't need clustering
-def experiment1(FLAGS, expname='moe_exp', test_time=False):
+def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='mimic'):
     '''
     MoE experiment
     '''
     settings = create_joint_settings()
     tasks = [[('--model_type', 'MOE'),
+              ('--dataname', dataname),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
     if test_time:
         tasks = [['--test_time'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment2(FLAGS, expname='global_exp', test_time=False):
+def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='mimic'):
     '''
     Global model only experiment
     '''
     settings = create_joint_settings()
-    tasks = [[('--model_type', 'GLOBAL'), ('--result_suffix', '_' + expname)] +
+    tasks = [[('--model_type', 'GLOBAL'),
+              ('--dataname', dataname),              
+              ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
     if test_time:
         tasks = [['--test_time'] + setting for setting in tasks]
@@ -277,7 +280,7 @@ def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False):
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 # experiments that requires clustering
-def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False, debug=None):
+def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False, debug=None, dataname='mimic'):
     '''
     global clustering followed by mtl
     '''
@@ -294,10 +297,12 @@ def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False, debug=Non
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'GLOBAL'),
+                         ('--dataname', dataname),                         
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
+                       ('--dataname', dataname),                       
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -311,7 +316,7 @@ def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False, debug=Non
         model_settings = [['--test_time'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment4(FLAGS, expname='ae_plus_mtl_exp', test_time=False, debug=None):
+def experiment4(FLAGS, expname='ae_plus_mtl_exp', test_time=False, debug=None, dataname='mimic'):
     '''
     AE clustering followed by mtl
     '''
@@ -329,9 +334,11 @@ def experiment4(FLAGS, expname='ae_plus_mtl_exp', test_time=False, debug=None):
 
     cluster_settings = [[('--model_type', 'AE'),
                          ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--dataname', dataname),                         
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
+                       ('--dataname', dataname),                       
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -449,10 +456,10 @@ def experiment8(FLAGS, expname='val_curve_plus_snapshot_exp', test_time=False, d
 
 def main():
     FLAGS = get_args()
-    experiment_debug(FLAGS, viz_time=False)
+    # experiment_debug(FLAGS, viz_time=False)
 
-    # experiment1(FLAGS, test_time=False) # must
-    # experiment2(FLAGS, test_time=False) # must
+    experiment1(FLAGS, test_time=False, dataname='eicu') # must
+    experiment2(FLAGS, test_time=False, dataname='eicu') # must
     # experiment6(FLAGS, test_time=False)
     # experiment9(FLAGS, test_time=False)
     # experiment12(FLAGS, test_time=False)

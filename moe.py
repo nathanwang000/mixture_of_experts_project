@@ -28,6 +28,9 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
+    parser.add_argument("--eicu_cohort", type=str, default='ARF4',
+                        choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],
+                        help="the cohort for eicu")    
     parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")    
     parser.add_argument("--global_model_fn",
                         type=str, default=None, help="name of the global model to load")        
