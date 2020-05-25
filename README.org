@@ -648,3 +648,29 @@ tasks = [[('--model_type', 'MULTITASK'),
               ('--cohorts', 'saps')] +
              setting for setting in settings]
 #+END_SRC
+* paper result
+
+| methods                                     |   AUC |
+|---------------------------------------------+-------|
+| global                                      | 0.864 |
+| moe                                         | 0.858 |
+|---------------------------------------------+-------|
+| MTL careunit                                | 0.864 |
+| Snapshot careunit                           | 0.853 |
+| Separate careunit                           | 0.850 |
+| careunit as feature (14)                    |       |
+|---------------------------------------------+-------|
+| MTL saps                                    | 0.869 |
+| Snapshot saps                               | 0.868 |
+| Separate saps                               | 0.849 |
+| Saps as feature (15)                        |       |
+|---------------------------------------------+-------|
+| MTL outcome dependent cluster               | 0.852 |
+| MTL outcome independent cluster             | 0.859 |
+| MTL validation curve                        | 0.856 |
+| Snapshot outcome dependent cluster          | 0.850 |
+| Snapshot outcome independent cluster (17)   |       |
+| Snapshot validation curve                   | 0.846 |
+| outcome dependent cluster as feature (16)   |       |
+| outcome independent cluster as feature (16) |       |
+| validation curve as feature (16)            |       |

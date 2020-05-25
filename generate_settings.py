@@ -208,6 +208,50 @@ def experiment13(FLAGS, expname='separate_saps_exp', test_time=False):
         tasks = [['--test_time'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
+def experiment14(FLAGS, expname='careunit_feature_exp', test_time=False):
+    '''
+    careunit separate models
+    '''
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'GLOBAL'),
+              ('--cohorts', 'careunit'),
+              '--include_cohort_as_feature',              
+              ('--result_suffix', '_' + expname)] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    
+def experiment15(FLAGS, expname='saps_feature_exp', test_time=False):
+    '''
+    saps quartile separate models
+    '''
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'GLOBAL'),
+              ('--cohorts', 'saps'),
+              '--include_cohort_as_feature',              
+              ('--result_suffix', '_' + expname)] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+
+def experiment16(FLAGS, expname='global_plus_mtl_feature_exp', test_time=False):
+    '''
+    careunit separate models
+    '''
+    cluster_name = expname.split('feature')[0] + "exp"
+    settings = create_joint_settings()
+    tasks = [[('--model_type', 'GLOBAL'),
+              ('--cohorts', 'custom'),
+              '--include_cohort_as_feature',
+              ('--cohort_filepath', str(i) + '_' + cluster_name + '.npy')]              
+              ('--result_suffix', '_' + expname)] +
+             setting for setting in settings]
+    if test_time:
+        tasks = [['--test_time'] + setting for setting in tasks]
+    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    
 # experiments that require global model but not clustering
 def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False):
     '''
@@ -420,6 +464,40 @@ def experiment7(FLAGS, expname='global_plus_snapshot_exp', test_time=False, debu
         model_settings = [['--test_time'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
+def experiment17(FLAGS, expname='ae_curve_plus_snapshot_exp', test_time=False, debug=None):
+    '''
+    val_curve clustering followed by snapshot
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings()
+
+    if debug is not None:
+        if type(debug) is list:
+            cluster_settings = [cluster_settings[idx] for idx in debug]
+            model_settings = [model_settings[idx] for idx in debug]
+        else:
+            idx = debug
+            cluster_settings = cluster_settings[idx:idx+1]
+            model_settings = model_settings[idx:idx+1]
+            
+    cluster_settings = [[('--model_type', 'AE'),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'SNAPSHOT'),
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time'] + setting for setting in model_settings]
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    
 def experiment8(FLAGS, expname='val_curve_plus_snapshot_exp', test_time=False, debug=None):
     '''
     val_curve clustering followed by snapshot
@@ -464,17 +542,23 @@ def main():
     # experiment9(FLAGS, test_time=False)
     # experiment12(FLAGS, test_time=False)
     # experiment13(FLAGS, test_time=False)
-
+    experiment14(FLAGS)
+    experiment15(FLAGS)    
+    experiment16(FLAGS, 'global_plus_mtl_feature_exp')
+    experiment16(FLAGS, 'ae_plus_mtl_feature_exp')
+    experiment16(FLAGS, 'val_curve_plus_mtl_feature_exp')        
+    
     #### global model required
     # experiment10(FLAGS, test_time=False)
     # experiment11(FLAGS, test_time=False)
 
     #### cluster and models
-    experiment3(FLAGS, test_time=False, dataname='eicu') # must
-    experiment4(FLAGS, test_time=False, dataname='eicu') # must
+    # experiment3(FLAGS, test_time=False, dataname='eicu') # must
+    # experiment4(FLAGS, test_time=False, dataname='eicu') # must
     # experiment5(FLAGS, test_time=False) # d, good to have
     # experiment7(FLAGS, test_time=False) # good to have
     # experiment8(FLAGS, test_time=False) # d, good to have
+    experiment17(FLAGS)
 
 if __name__ == '__main__':
     main()
