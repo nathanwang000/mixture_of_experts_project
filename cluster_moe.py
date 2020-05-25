@@ -35,7 +35,10 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
-                        help="indicating which data to run. Type: String.")    
+                        help="indicating which data to run. Type: String.")
+    parser.add_argument("--eicu_cohort", type=str, default='ARF4',
+                        choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],
+                        help="the cohort for eicu")    
     parser.add_argument("--runname", type=str, default=None, help="setting name (default None)")
     parser.add_argument("--result_suffix", type=str, default='',
                         help="this will add to the end of every saved files")    

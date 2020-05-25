@@ -10,7 +10,7 @@ from tune import run
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--global_model_fn", default="10_global_exp.m", type=str,
+    parser.add_argument("--global_model_fn", default="22_global_exp.m", type=str,
                         help="best global model file name in /mortality_test/models/, default=10_global_exp.m")
     parser.add_argument("--nc", default=1, type=int,
                         help="number of concurrent jobs, default 1")
@@ -458,8 +458,8 @@ def main():
     FLAGS = get_args()
     # experiment_debug(FLAGS, viz_time=False)
 
-    experiment1(FLAGS, test_time=False, dataname='eicu') # must
-    experiment2(FLAGS, test_time=False, dataname='eicu') # must
+    # experiment1(FLAGS, test_time=False, dataname='eicu') # must
+    # experiment2(FLAGS, test_time=False, dataname='eicu') # must
     # experiment6(FLAGS, test_time=False)
     # experiment9(FLAGS, test_time=False)
     # experiment12(FLAGS, test_time=False)
@@ -470,8 +470,8 @@ def main():
     # experiment11(FLAGS, test_time=False)
 
     #### cluster and models
-    # experiment3(FLAGS, test_time=False) # must
-    # experiment4(FLAGS, test_time=False) # must
+    experiment3(FLAGS, test_time=False, dataname='eicu') # must
+    experiment4(FLAGS, test_time=False, dataname='eicu') # must
     # experiment5(FLAGS, test_time=False) # d, good to have
     # experiment7(FLAGS, test_time=False) # good to have
     # experiment8(FLAGS, test_time=False) # d, good to have
