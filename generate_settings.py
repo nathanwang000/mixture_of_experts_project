@@ -245,7 +245,7 @@ def experiment16(FLAGS, expname='global_plus_mtl_feature_exp', test_time=False):
     tasks = [[('--model_type', 'GLOBAL'),
               ('--cohorts', 'custom'),
               '--include_cohort_as_feature',
-              ('--cohort_filepath', str(i) + '_' + cluster_name + '.npy')]              
+              ('--cohort_filepath', str(i) + '_' + cluster_name + '.npy'),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
     if test_time:
@@ -543,10 +543,10 @@ def main():
     # experiment12(FLAGS, test_time=False)
     # experiment13(FLAGS, test_time=False)
     experiment14(FLAGS)
-    experiment15(FLAGS)    
-    experiment16(FLAGS, 'global_plus_mtl_feature_exp')
-    experiment16(FLAGS, 'ae_plus_mtl_feature_exp')
-    experiment16(FLAGS, 'val_curve_plus_mtl_feature_exp')        
+    # experiment15(FLAGS)    
+    # experiment16(FLAGS, 'global_plus_mtl_feature_exp')
+    # experiment16(FLAGS, 'ae_plus_mtl_feature_exp')
+    # experiment16(FLAGS, 'val_curve_plus_mtl_feature_exp')        
     
     #### global model required
     # experiment10(FLAGS, test_time=False)

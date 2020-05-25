@@ -35,7 +35,9 @@ def load_data(dataname, FLAGS):
         print('X shape {}'.format(X.shape))
 
         # Split
-        if FLAGS.cohorts == 'careunit':
+        if not hasattr(FLAGS, 'cohorts'): # for the cluster models
+            cohort_col = careunits
+        elif FLAGS.cohorts == 'careunit':
             cohort_col = careunits
         elif FLAGS.cohorts == 'saps':
             cohort_col = saps_quartile
