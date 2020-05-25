@@ -14,6 +14,11 @@ https://github.com/mit-ddig/multitask-patients
    cluster_moe.py: my code to perform clustering
 
 * left to finish
+
+  - [ ] may need to write autoencoder in case tf version is too slow
+  - [ ] may need to write dataloader to perform other tasks
+
+** old
   1. [X] see the performance of random initialization on clean template
      12:30 - 1:00
   2. [X] see performance on default parameters by running "make careunit; make
@@ -27,8 +32,7 @@ https://github.com/mit-ddig/multitask-patients
   6. [ ] Writeup 4:30 - 6:30
   7. [X] music/sport 6:30 - 7:30
   8. [X] dinner 7:30 - 8:30
-  9. [ ] writing 9:00 - 11:00
-  10. [ ] eICU: rest of the time
+
      
 * issues
 - [X] investigate why curves val stopped even though validation loss is still
@@ -650,27 +654,27 @@ tasks = [[('--model_type', 'MULTITASK'),
 #+END_SRC
 * paper result
 
-| methods                                     |   AUC |
-|---------------------------------------------+-------|
-| global                                      | 0.864 |
-| moe                                         | 0.858 |
-|---------------------------------------------+-------|
-| MTL careunit                                | 0.864 |
-| Snapshot careunit                           | 0.853 |
-| Separate careunit                           | 0.850 |
-| careunit as feature (14)                    |       |
-|---------------------------------------------+-------|
-| MTL saps                                    | 0.869 |
-| Snapshot saps                               | 0.868 |
-| Separate saps                               | 0.849 |
-| Saps as feature (15)                        |       |
-|---------------------------------------------+-------|
-| MTL outcome dependent cluster               | 0.852 |
-| MTL outcome independent cluster             | 0.859 |
-| MTL validation curve                        | 0.856 |
-| Snapshot outcome dependent cluster          | 0.850 |
-| Snapshot outcome independent cluster (17)   |       |
-| Snapshot validation curve                   | 0.846 |
-| outcome dependent cluster as feature (16)   |       |
-| outcome independent cluster as feature (16) |       |
-| validation curve as feature (16)            |       |
+| methods                                |   AUC |
+|----------------------------------------+-------|
+| global                                 | 0.864 |
+| moe                                    | 0.858 |
+|----------------------------------------+-------|
+| MTL careunit                           | 0.868 |
+| Snapshot careunit                      | 0.853 |
+| Separate careunit                      | 0.846 |
+| careunit as feature                    | 0.863 |
+|----------------------------------------+-------|
+| MTL saps                               | 0.868 |
+| Snapshot saps                          | 0.868 |
+| Separate saps                          | 0.858 |
+| Saps as feature                        | 0.873 |
+|----------------------------------------+-------|
+| MTL outcome dependent cluster          | 0.850 |
+| MTL outcome independent cluster        | 0.859 |
+| MTL validation curve                   | 0.856 |
+| Snapshot outcome dependent cluster     | 0.850 |
+| Snapshot outcome independent cluster   | 0.851 |
+| Snapshot validation curve              | 0.853 |
+| outcome dependent cluster as feature   | 0.847 |
+| outcome independent cluster as feature | 0.861 |
+| validation curve as feature            | 0.854 |

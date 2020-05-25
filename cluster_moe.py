@@ -36,6 +36,8 @@ def get_args():
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
+    parser.add_argument("--result_dir", type=str, default='result/',
+                        help="where result are saved. Type: String.")
     parser.add_argument("--eicu_cohort", type=str, default='ARF4',
                         choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],
                         help="the cohort for eicu")    
@@ -149,8 +151,10 @@ def train_seq_ae(X_train, X_val, FLAGS):
     early_stopping = EarlyStopping(monitor='val_loss', patience=3)
 
     fname_suffix = get_suffix_fname_model(FLAGS)
-    encoder_fn = 'clustering_models/encoder_{}'.format(fname_suffix)
-    seq_ae_fn = 'clustering_models/seq_ae_{}'.format(fname_suffix)
+    encoder_fn = '{}/clustering_models/encoder_{}'.format(FLAGS.result_dir,
+                                                          fname_suffix)
+    seq_ae_fn = '{}/clustering_models/seq_ae_{}'.format(FLAGS.result_dir,
+                                                        fname_suffix)
 
     print(encoder_fn, seq_ae_fn)
     if os.path.exists(encoder_fn) and os.path.exists(seq_ae_fn):
@@ -177,7 +181,9 @@ def train_assignment(FLAGS, k, assignment, loader, savename_suffix,
     mapp from input to assignment
     '''
     fname_suffix = get_suffix_fname_cluster(FLAGS)
-    gate_fn = 'clustering_models/gate_{}{}.m'.format(fname_suffix, savename_suffix)
+    gate_fn = '{}/clustering_models/gate_{}{}.m'.format(FLAGS.result_dir,
+                                                        fname_suffix,
+                                                        savename_suffix)
 
     print(gate_fn)
     if os.path.exists(gate_fn):
@@ -219,7 +225,8 @@ def gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix):
         numpy array embeddings
     '''
     fname_suffix = get_suffix_fname_cluster(FLAGS)
-    gmm_fn_name = 'clustering_models/gmm_{}{}'.format(fname_suffix, savename_suffix)
+    gmm_fn_name = '{}/clustering_models/gmm_{}{}'.format(FLAGS.result_dir,
+                                                         fname_suffix, savename_suffix)
     if os.path.exists(gmm_fn_name):
         gm = joblib.load(gmm_fn_name)
     else:
@@ -362,11 +369,14 @@ def main():
     # mark for change
     if FLAGS.global_model_fn is not None:
         # drop ".m"
-        global_model_dir = "mortality_test/checkpoints/{}".format(FLAGS.global_model_fn[:-2])
-        global_model_fn = "mortality_test/models/{}".format(FLAGS.global_model_fn)
+        global_model_dir = "{}/logs/checkpoints/{}".format(FLAGS.result_dir,
+                                                           FLAGS.global_model_fn[:-2])
+        global_model_fn = "{}/logs/models/{}".format(FLAGS.result_dir,
+                                                     FLAGS.global_model_fn)
     else:
-        global_model_dir = "mortality_test/checkpoints/global_pytorch_lstm_shared_1_layers_16_units_0_dense_shared_0_dense_units_mortality/"    
-        global_model_fn = "mortality_test/models/global_pytorch_lstm_shared_1_layers_16_units_0_dense_shared_0_dense_units_mortality.m"
+        global_model_dir = "dummy"
+        global_model_fn = "dummy.m"
+        
     if FLAGS.pmt:
         net = torch.load(global_model_fn)
 
@@ -396,8 +406,9 @@ def main():
         'global_model_dir': global_model_dir,
     }
 
-    if not os.path.exists('clustering_models/'):
-        os.makedirs('clustering_models/')
+    cluster_model_dir = '{}/clustering_models/'.format(FLAGS.result_dir)
+    if not os.path.exists(cluster_model_dir):
+        os.makedirs(cluster_model_dir)
     
     if FLAGS.model_type == 'AE':
         cluster_preds = train_ae(cluster_args)
@@ -408,15 +419,15 @@ def main():
     elif FLAGS.model_type == 'VAL_CURVE':
         cluster_preds = train_val_curve(cluster_args)
 
-    if not os.path.exists('cluster_membership/'):
-        os.makedirs('cluster_membership/')
+    if not os.path.exists('{}/cluster_membership/'.format(FLAGS.result_dir)):
+        os.makedirs('{}/cluster_membership/'.format(FLAGS.result_dir))
     # secondary mark maybe change later
     if FLAGS.runname is not None:
         savename = FLAGS.runname + FLAGS.result_suffix + ".npy"
     else:
         model_name = FLAGS.model_type + ("_pmt" if FLAGS.pmt else "")
         savename = model_name + "_" + FLAGS.save_to_fname
-    np.save('cluster_membership/' + savename, cluster_preds)
+    np.save('{}/cluster_membership/'.format(FLAGS.result_dir) + savename, cluster_preds)
 
 if __name__ == "__main__":
     main()

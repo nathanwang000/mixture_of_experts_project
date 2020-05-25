@@ -42,7 +42,8 @@ def load_data(dataname, FLAGS):
         elif FLAGS.cohorts == 'saps':
             cohort_col = saps_quartile
         elif FLAGS.cohorts == 'custom':
-            cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
+            cohort_col = np.load('{}/cluster_membership/'.format(FLAGS.result_dir) +\
+                                 FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
     elif dataname == 'eicu':
         print('using eICU cohort {}'.format(FLAGS.eicu_cohort))
@@ -85,7 +86,8 @@ def load_data(dataname, FLAGS):
         if not hasattr(FLAGS, 'cohorts'): # for cluster
             cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
         elif FLAGS.cohorts == 'custom':
-            cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
+            cohort_col = np.load('{}/cluster_membership/'.format(FLAGS.result_dir) +\
+                                 FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
         else:
             cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort

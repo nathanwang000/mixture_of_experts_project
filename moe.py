@@ -28,6 +28,8 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
+    parser.add_argument("--result_dir", type=str, default='result',
+                        help="where result are saved. Type: String.")    
     parser.add_argument("--eicu_cohort", type=str, default='ARF4',
                         choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],
                         help="the cohort for eicu")    
@@ -38,9 +40,6 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--wd", type=float, default=0, help="weight decay Adam")
     parser.add_argument("--num_clusters", type=int, default=3, \
         help='Number of clusters for MoE. Type: int. Default: 3.')    
-    parser.add_argument("--experiment_name", type=str, default='mortality_test',
-                        help="This will become the name of the folder where are the models and results \
-        are stored. Type: String. Default: 'mortality_test'.")
     parser.add_argument("--random_run", action="store_true", default=False,
                         help="run stochstically, including weight initialization")
     parser.add_argument("--result_suffix", type=str, default='',
@@ -192,7 +191,8 @@ def save_output(model, model_name, X, y, cohorts, all_tasks, fname, FLAGS):
     # secondary mark for future change
     if FLAGS.runname is not None:
         fname += "_"  + FLAGS.runname
-    joblib.dump((y_pred, y, cohorts), FLAGS.experiment_name + '/results/' +
+    joblib.dump((y_pred, y, cohorts),
+                '{}/logs'.format(FLAGS.result_dir) + '/results/' +
                 fname + FLAGS.result_suffix + '.pkl')
         
 ###### losses
@@ -209,10 +209,10 @@ def sample_weighted_bce_loss(yhat, y):
 
     if w is not None:
         criterion = nn.BCELoss(reduction='none')
-        l = (criterion(yhat, y) * w).mean()
+        l = (criterion(yhat.view(-1), y) * w).mean()
     else:
         criterion = nn.BCELoss()
-        l = criterion(yhat, y)
+        l = criterion(yhat.view(-1), y)
     return l
 
 def mtl_loss(yhat, y_z):
@@ -231,10 +231,10 @@ def mtl_loss(yhat, y_z):
 
     if w is not None:
         criterion = nn.BCELoss(reduction='none')
-        l = (criterion(yhat, y) * w).mean()
+        l = (criterion(yhat.view(-1), y) * w).mean()
     else:
         criterion = nn.BCELoss()
-        l = criterion(yhat, y)
+        l = criterion(yhat.view(-1), y)
     return l
 
 ###### loaders
@@ -559,7 +559,7 @@ def save_cohort_aucs(cohort_aucs, model_name, fname, FLAGS):
             suffix += "pmt_"
     suffix += 'single' if not FLAGS.bootstrap else 'all'
     auc_fname = '{}_{}'.format(fname, suffix)
-    np.save(FLAGS.experiment_name + '/results/' +
+    np.save('{}/logs'.format(FLAGS.result_dir) + '/results/' +
             auc_fname + FLAGS.result_suffix, cohort_aucs)
 
 def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
@@ -568,7 +568,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                       all_tasks, FLAGS, samp_weights):
     """
     Train and evaluate pytorch models.
-    Results are saved in FLAGS.experiment_name/results:
+    Results are saved in result_dir/logs/results:
         - The numpy file ending in '_keys' contains the parameters for the model,
           and the numpy file ending in '_results' contains the validation AUCs for that
           configuration.
@@ -596,7 +596,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     """
     model_fname_parts = get_model_fname_parts(model_name, FLAGS)
     if FLAGS.viz_time:
-        model_path = FLAGS.experiment_name + \
+        model_path = '{}/logs'.format(FLAGS.result_dir) + \
             '/models/' + "_".join(model_fname_parts) + \
             FLAGS.result_suffix + '.m' # secondary mark for future change
         model = torch.load(model_path)
@@ -606,7 +606,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         return
         
     if FLAGS.test_time:
-        model_path = FLAGS.experiment_name + \
+        model_path = '{}/logs'.format(FLAGS.result_dir) + \
             '/models/' + "_".join(model_fname_parts) + \
             FLAGS.result_suffix + '.m' # secondary mark for future change
         model = torch.load(model_path)
@@ -639,19 +639,19 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
 
     # secondary mark
     if FLAGS.global_model_fn is None:
-        global_model_dir = FLAGS.experiment_name + \
+        global_model_dir = '{}/logs'.format(FLAGS.result_dir) + \
                            '/checkpoints/global_pytorch_' + \
                            "_".join(model_fname_parts[1:]) + \
                            FLAGS.result_suffix
-        global_model_fn = FLAGS.experiment_name + \
+        global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
                          '/models/global_pytorch_' +\
                          "_".join(model_fname_parts[1:]) + \
                          FLAGS.result_suffix + ".m",
     else:
-        global_model_dir = FLAGS.experiment_name + \
+        global_model_dir = '{}/logs'.format(FLAGS.result_dir) + \
                            '/checkpoints/' + \
                            FLAGS.global_model_fn[:-2] # drop ".m"
-        global_model_fn = FLAGS.experiment_name + \
+        global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
                          '/models/' +\
                          FLAGS.global_model_fn
         
@@ -677,7 +677,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     model = model.cuda()
 
     # secondary mark for change later
-    model_dir = FLAGS.experiment_name + \
+    model_dir = '{}/logs'.format(FLAGS.result_dir) + \
         '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
@@ -692,7 +692,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
 
     joblib.dump(train_log, '{}/log'.format(model_dir))
     # secondary mark for change
-    torch.save(model, FLAGS.experiment_name + '/models/' +
+    torch.save(model, '{}/logs'.format(FLAGS.result_dir) + '/models/' +
                "_".join(model_fname_parts) + FLAGS.result_suffix + '.m')
 
     ############### evaluation ###########
@@ -716,8 +716,8 @@ def main():
 
    # Make folders for the results & models
     for folder in ['results', 'models', 'checkpoints']:
-        if not os.path.exists(os.path.join(FLAGS.experiment_name, folder)):
-            os.makedirs(os.path.join(FLAGS.experiment_name, folder))
+        if not os.path.exists(os.path.join('{}/logs'.format(FLAGS.result_dir), folder)):
+            os.makedirs(os.path.join('{}/logs'.format(FLAGS.result_dir), folder))
 
     # Load Data
     X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
@@ -761,12 +761,14 @@ def main():
     if FLAGS.pmt:
         # secondary mark for change
         if FLAGS.global_model_fn is not None:
-            global_model_fn = FLAGS.experiment_name + \
+            global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
                 '/models/' + FLAGS.global_model_fn
         else:
-            model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] # the last is pmt
-            global_model_fn = FLAGS.experiment_name + \
-                '/models/global_pytorch_' + "_".join(model_fname_parts) + FLAGS.result_suffix + ".m"
+            # the last is pmt thus dropping
+            model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] 
+            global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
+                '/models/global_pytorch_' + "_".join(model_fname_parts) +\
+                FLAGS.result_suffix + ".m"
         net = torch.load(global_model_fn)
 
         # if True: # this is used to investigate how stable bs is for pmt_importance

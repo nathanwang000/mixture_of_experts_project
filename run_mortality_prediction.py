@@ -35,9 +35,11 @@ def get_args():
 
     parser.add_argument("--lr", type=float, default=0.0001, help="learning rate for Adam") # jw
     parser.add_argument("--wd", type=float, default=0, help="weight decay Adam") # jw
-    parser.add_argument("--experiment_name", type=str, default='mortality_test',
-                        help="This will become the name of the folder where are the models and results \
-        are stored. Type: String. Default: 'mortality_test'.")
+    # jw: remove to use logs
+    # parser.add_argument("--experiment_name", type=str, default='{}/logs'.format(FLAGS.result_dir),
+    #                     help="This will become the name of the folder where are\
+    #                     the models and results \
+    #                     are stored. Type: String. Default: '{}/logs'.format(FLAGS.result_dir).")
     parser.add_argument("--random_run", action="store_true", default=False,
                         help="run stochstically, including weight initialization") # jw: added
     parser.add_argument("--result_suffix", type=str, default='', # jw: added to differentiate different runs
@@ -614,7 +616,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
                         FLAGS):
     """
     Train and evaluate separate models for each task. 
-    Results are saved in FLAGS.experiment_name/results:
+    Results are saved in '{}/logs'.format(FLAGS.result_dir)/results:
         - The numpy file ending in '_keys' contains the parameters for the model, 
           and the numpy file ending in '_results' contains the validation AUCs for that 
           configuration. 
@@ -648,7 +650,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
         for task in all_tasks:
             model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                                  str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
-            model_path = FLAGS.experiment_name + \
+            model_path = '{}/logs'.format(FLAGS.result_dir) + \
                 '/models/' + "_".join(model_fname_parts) + FLAGS.result_suffix
             model = load_model(model_path)
 
@@ -668,7 +670,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
 
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
         test_auc_fname = 'test_auc_on_separate_' + suffix
-        np.save(FLAGS.experiment_name + '/results/' +
+        np.save('{}/logs'.format(FLAGS.result_dir) + '/results/' +
                 test_auc_fname + FLAGS.result_suffix, cohort_aucs)
         return
 
@@ -688,7 +690,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
                                          X_train.shape[1:], 1, FLAGS=FLAGS) # jw: add flags
         model_fname_parts = ['separate', str(task), 'lstm_shared', str(FLAGS.num_lstm_layers), 'layers', str(FLAGS.lstm_layer_size), 'units',
                              str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
-        model_dir = FLAGS.experiment_name + \
+        model_dir = '{}/logs'.format(FLAGS.result_dir) + \
             '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
@@ -721,7 +723,7 @@ def run_separate_models(X_train, y_train, cohorts_train,
 
         print(cohort_aucs[-1])
 
-        model.save(FLAGS.experiment_name + '/models/' +
+        model.save('{}/logs'.format(FLAGS.result_dir) + '/models/' +
                    "_".join(model_fname_parts) + FLAGS.result_suffix)
 
     # save results to a file
@@ -751,7 +753,7 @@ def run_global_model(X_train, y_train, cohorts_train,
                      FLAGS):
     """
     Train and evaluate global model. 
-    Results are saved in FLAGS.experiment_name/results:
+    Results are saved in '{}/logs'.format(FLAGS.result_dir)/results:
         - The numpy file ending in '_keys' contains the parameters for the model, 
           and the numpy file ending in '_results' contains the validation AUCs for that 
           configuration. 
@@ -781,7 +783,7 @@ def run_global_model(X_train, y_train, cohorts_train,
                          str(FLAGS.num_dense_shared_layers), 'dense_shared', str(FLAGS.dense_shared_layer_size), 'dense_units', 'mortality']
 
     if FLAGS.test_time:
-        model_path = FLAGS.experiment_name + \
+        model_path = '{}/logs'.format(FLAGS.result_dir) + \
             '/models/' + "_".join(model_fname_parts) + FLAGS.result_suffix
         model = load_model(model_path)
         cohort_aucs = []
@@ -822,7 +824,7 @@ def run_global_model(X_train, y_train, cohorts_train,
 
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
         test_auc_fname = 'test_auc_on_global_' + suffix
-        np.save(FLAGS.experiment_name + '/results/' +
+        np.save('{}/logs'.format(FLAGS.result_dir) + '/results/' +
                 test_auc_fname + FLAGS.result_suffix, cohort_aucs)
         return
 
@@ -830,7 +832,7 @@ def run_global_model(X_train, y_train, cohorts_train,
                                      FLAGS.num_dense_shared_layers, FLAGS.dense_shared_layer_size,
                                      X_train.shape[1:], 1, FLAGS=FLAGS) # jw: add flags
     early_stopping = EarlyStopping(monitor='val_loss', patience=4)
-    model_dir = FLAGS.experiment_name + \
+    model_dir = '{}/logs'.format(FLAGS.result_dir) + \
         '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
@@ -843,7 +845,7 @@ def run_global_model(X_train, y_train, cohorts_train,
               callbacks=[checkpointer, early_stopping],
               validation_data=(X_val, y_val))
 
-    model.save(FLAGS.experiment_name + '/models/' +
+    model.save('{}/logs'.format(FLAGS.result_dir) + '/models/' +
                "_".join(model_fname_parts) + FLAGS.result_suffix)
 
     cohort_aucs = []
@@ -909,7 +911,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
                         FLAGS):
     """
     Train and evaluate multitask model. 
-    Results are saved in FLAGS.experiment_name/results:
+    Results are saved in '{}/logs'.format(FLAGS.result_dir)/results:
         - The numpy file ending in '_keys' contains the parameters for the model, 
           and the numpy file ending in '_results' contains the validation AUCs for that 
           configuration. 
@@ -944,7 +946,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
     cohort_key = dict(zip(all_tasks, range(n_tasks)))
 
     if FLAGS.test_time:
-        model_path = FLAGS.experiment_name + \
+        model_path = '{}/logs'.format(FLAGS.result_dir) + \
             '/models/' + "_".join(model_fname_parts) + FLAGS.result_suffix
         model = load_model(model_path)
         # y_pred = model.predict(X_test)
@@ -992,7 +994,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
 
         suffix = 'single' if not FLAGS.test_bootstrap else 'all'
         test_auc_fname = 'test_auc_on_multitask_' + suffix
-        np.save(FLAGS.experiment_name + '/results/' +
+        np.save('{}/logs'.format(FLAGS.result_dir) + '/results/' +
                 test_auc_fname + FLAGS.result_suffix, cohort_aucs)
         return
 
@@ -1005,7 +1007,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=4)
 
-    model_dir = FLAGS.experiment_name + \
+    model_dir = '{}/logs'.format(FLAGS.result_dir) + \
         '/checkpoints/' + "_".join(model_fname_parts) + FLAGS.result_suffix
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
@@ -1020,7 +1022,7 @@ def run_multitask_model(X_train, y_train, cohorts_train,
                   callbacks=[early_stopping, checkpointer],
                   validation_data=(X_val, [y_val for i in range(n_tasks)]))
 
-    mtl_model.save(FLAGS.experiment_name + '/models/' +
+    mtl_model.save('{}/logs'.format(FLAGS.result_dir) + '/models/' +
                    "_".join(model_fname_parts) + FLAGS.result_suffix)
 
     cohort_aucs = []
@@ -1288,15 +1290,15 @@ if __name__ == "__main__":
 
     # Make folders for the results & models
     for folder in ['results', 'models', 'checkpoints']:
-        if not os.path.exists(os.path.join(FLAGS.experiment_name, folder)):
-            os.makedirs(os.path.join(FLAGS.experiment_name, folder))
+        if not os.path.exists(os.path.join('{}/logs'.format(FLAGS.result_dir), folder)):
+            os.makedirs(os.path.join('{}/logs'.format(FLAGS.result_dir), folder))
 
     # The file that we'll save model configurations to
     sw = 'with_sample_weights' if FLAGS.sample_weights else 'no_sample_weights'
     sw = '' if FLAGS.model_type == 'SEPARATE' else sw
-    fname_keys = FLAGS.experiment_name + '/results/' + \
+    fname_keys = '{}/logs'.format(FLAGS.result_dir) + '/results/' + \
         '_'.join([FLAGS.model_type.lower(), 'model_keys', sw]) + FLAGS.result_suffix + '.npy'
-    fname_results = FLAGS.experiment_name + '/results/' + \
+    fname_results = '{}/logs'.format(FLAGS.result_dir) + '/results/' + \
         '_'.join([FLAGS.model_type.lower(), 'model_results', sw]) + FLAGS.result_suffix + '.npy'
 
     # Check that we haven't already run this configuration
@@ -1324,7 +1326,8 @@ if __name__ == "__main__":
     elif FLAGS.cohorts == 'saps':
         cohort_col = saps_quartile
     elif FLAGS.cohorts == 'custom':
-        cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
+        cohort_col = np.load('{}/cluster_membership/'.format(FLAGS.result_dir) +\
+                             FLAGS.cohort_filepath)
         cohort_col = np.array([str(c) for c in cohort_col])
 
     # Include cohort membership as an additional feature

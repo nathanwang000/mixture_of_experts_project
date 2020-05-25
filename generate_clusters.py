@@ -15,6 +15,8 @@ import pickle
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--result_dir", type=str, default='result',
+                        help="where result are saved. Type: String.") # jw: added
     parser.add_argument("--latent_dim", type=int, default=50, \
         help='The embedding size, or latent dimension of the autoencoder. Type: int. Default: 50.')
     parser.add_argument("--ae_epochs", type=int, default=100, \
@@ -100,12 +102,13 @@ def train_seq_ae(X_train, X_val, FLAGS):
                     callbacks=[early_stopping],
                     validation_data=(X_val, X_val))
 
+    if not os.path.exists('{}/clustering_models/'.format(FLAGS.result_dir)):
+        os.makedirs('{}/clustering_models/'.format(FLAGS.result_dir))
 
-    if not os.path.exists('clustering_models/'):
-        os.makedirs('clustering_models/')
-
-    encoder.save('clustering_models/encoder_' + str(FLAGS.data_hours))
-    sequence_autoencoder.save('clustering_models/seq_ae_' + str(FLAGS.data_hours))
+    encoder.save('{}/clustering_models/encoder_'.format(FLAGS.result_dir) +\
+                 str(FLAGS.data_hours))
+    sequence_autoencoder.save('{}/clustering_models/seq_ae_'.format(FLAGS.result_dir) +\
+                              str(FLAGS.data_hours))
     return encoder, sequence_autoencoder
 
 ########## MAIN ##########################################################################
@@ -140,11 +143,13 @@ if __name__ == "__main__":
                          init_params='kmeans',
                          verbose=True)
     gm.fit(embedded_train)
-    pickle.dump(gm, open('clustering_models/gmm_' + str(FLAGS.data_hours), 'wb'))
+    pickle.dump(gm, open('{}/clustering_models/gmm_'.format(FLAGS.result_dir) +\
+                         str(FLAGS.data_hours), 'wb'))
 
     # Get cluster membership
     cluster_preds = gm.predict(embedded_all)
 
-    if not os.path.exists('cluster_membership/'):
-        os.makedirs('cluster_membership/')
-    np.save('cluster_membership/' + FLAGS.save_to_fname, cluster_preds)
+    if not os.path.exists('{}/cluster_membership/'.format(FLAGS.result_dir)):
+        os.makedirs('{}/cluster_membership/'.format(FLAGS.result_dir))
+    np.save('{}/cluster_membership/'.format(FLAGS.result_dir) +\
+            FLAGS.save_to_fname, cluster_preds)
