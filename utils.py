@@ -82,7 +82,9 @@ def load_data(dataname, FLAGS):
         print('prior to todense')
         X = X.todense()
 
-        if FLAGS.cohorts == 'custom':
+        if not hasattr(FLAGS, 'cohorts'): # for cluster
+            cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
+        elif FLAGS.cohorts == 'custom':
             cohort_col = np.load('cluster_membership/' + FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
         else:
