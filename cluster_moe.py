@@ -165,9 +165,6 @@ def train_seq_ae(X_train, X_val, FLAGS):
                     callbacks=[early_stopping],
                     validation_data=(X_val, X_val))
 
-    if not os.path.exists('clustering_models/'):
-        os.makedirs('clustering_models/')
-
     encoder.save(encoder_fn)
     sequence_autoencoder.save(seq_ae_fn)
     return encoder, sequence_autoencoder
@@ -398,6 +395,10 @@ def main():
         'global_model_fn': global_model_fn,
         'global_model_dir': global_model_dir,
     }
+
+    if not os.path.exists('clustering_models/'):
+        os.makedirs('clustering_models/')
+    
     if FLAGS.model_type == 'AE':
         cluster_preds = train_ae(cluster_args)
     if FLAGS.model_type == 'INPUT': # cluster on input
