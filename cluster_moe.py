@@ -29,7 +29,7 @@ from generate_clusters import create_seq_ae
 from sklearn.externals import joblib
 from utils import train, get_criterion, get_output, get_y, get_x, random_split_dataset, load_data
 from moe import create_loader, pmt_importance
-from models import Global_MIMIC_Cluster_Model
+from models import Global_MIMIC_Cluster_Model, Seq_AE_Model
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -173,6 +173,57 @@ def train_seq_ae(X_train, X_val, FLAGS):
     sequence_autoencoder.save(seq_ae_fn)
     return encoder, sequence_autoencoder
 
+def create_seq_ae_pytorch(input_dim, latent_dim):
+    '''
+    Build sequence autoencoder. 
+    Args: 
+        X_train (Numpy array): training data. (shape = n_samples x n_timesteps x n_features)
+        X_val (Numpy array): validation data.
+        latent_dim (int): hidden representation dimension.
+    Returns: 
+        sequence_autoencoder (pytorch model): autoencoder model.
+    '''
+    return Seq_AE_Model(input_dim, latent_dim)
+
+def train_seq_ae_pytorch(X_train, X_val, FLAGS):
+    """
+    Train a sequence to sequence autoencoder.
+    Args: 
+        X_train (Numpy array): training data. (shape = n_samples x n_timesteps x n_features)
+        X_val (Numpy array): validation data.
+        FLAGS (dictionary): all provided arguments.
+    Returns: 
+        encoder (pytorch model): trained model to encode to latent space.
+    """
+    sequence_autoencoder = create_seq_ae_pytorch(X_train.shape[2], FLAGS.latent_dim)
+    
+    fname_suffix = get_suffix_fname_model(FLAGS)
+    model_dir = '{}/clustering_models/seq_ae_pytorch_{}'.format(FLAGS.result_dir,
+                                                                fname_suffix)
+    seq_ae_fn = model_dir + '.m'
+
+    print(seq_ae_fn)
+    if os.path.exists(seq_ae_fn):
+        return torch.load(seq_ae_fn)
+    
+    # fit the model
+    print("Fitting Sequence Autoencoder ... ")    
+    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.wd)
+    criterion = nn.MSELoss()
+    get_c = partial(get_criterion, criterion=criterion)
+    model, train_log = train(model,
+                             create_loader(X_train, X_train),
+                             criterion, optimizer,
+                             FLAGS.ae_epochs,
+                             savename = model_dir
+                             val_loader = create_loader(X_val, X_val),
+                             es_named_criterion = ('loss', get_c, True),
+                             verbose=True)
+
+    joblib.dump(train_log, '{}/log'.format(model_dir))
+    torch.save(model, seq_ae_fn)
+    return sequence_autoencoder.encoder_forward
+
 def train_assignment(FLAGS, k, assignment, loader, savename_suffix,
                      n_epochs=50, net=None,
                      criterion=nn.CrossEntropyLoss()):
@@ -261,7 +312,28 @@ def train_ae(cluster_args):
     # Get Embeddings
     embedded_train = encoder.predict(X_train)
     embedded_all = encoder.predict(X)
-    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix="_ae")
+    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS,
+                               savename_suffix="_ae")
+
+def train_ae_pytorch(cluster_args):
+    '''
+    pytorch version of train ae
+    returns 
+       cluster_predictions (type:int): shape (n,)
+    '''
+    X = cluster_args['X']
+    X_train = cluster_args['X_train']
+    X_val = cluster_args['X_val']
+    FLAGS = cluster_args['FLAGS']
+    
+    # Train autoencoder
+    encoder = train_seq_ae_pytorch(X_train, X_val, FLAGS)
+
+    # Get Embeddings
+    embedded_train = get_output(encoder, create_loader(X_train, y_train))
+    embedded_all = get_output(encoder, create_loader(X, y))
+    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS,
+                               savename_suffix="_ae")
 
 def train_input(cluster_args):
     '''cluster on the input space'''
@@ -300,7 +372,8 @@ def train_global(cluster_args):
     # Get Embeddings:    
     embedded_train = get_output(global_model, create_loader(X_train, y_train))
     embedded_all = get_output(global_model, create_loader(X, y))
-    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix="_global")
+    return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS,
+                               savename_suffix="_global")
     
 def train_val_curve(cluster_args):
     # 1. learn validation curve: save as snapshot; reuse the code
@@ -411,7 +484,7 @@ def main():
         os.makedirs(cluster_model_dir)
     
     if FLAGS.model_type == 'AE':
-        cluster_preds = train_ae(cluster_args)
+        cluster_preds = train_ae_pytorch(cluster_args)        
     if FLAGS.model_type == 'INPUT': # cluster on input
         cluster_preds = train_input(cluster_args)
     elif FLAGS.model_type == 'GLOBAL':

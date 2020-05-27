@@ -611,9 +611,9 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
             FLAGS.result_suffix + '.m' # secondary mark for future change
         model = torch.load(model_path)
 
-        print('testing on validation set')
-        cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
-        save_cohort_aucs(cohort_aucs, model_name, 'val_auc_on', FLAGS)
+        # print('testing on validation set')
+        # cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
+        # save_cohort_aucs(cohort_aucs, model_name, 'val_auc_on', FLAGS)
 
         # test
         print('testing on test set')

@@ -181,6 +181,37 @@ class MTL_MIMIC_Model(nn.Module):
         o = self.shared(h[-1]) # use last layer
         
         return [expert(o) for expert in self.experts]
+
+class Seq_AE_Model(nn.Module):
+
+    ''' sequence autoencoder model for the mimic dataset'''
+    def __init__(self, input_dim, units, n_layers=1):
+        super(self.__class__, self).__init__()
+        self.n_layers = n_layers
+        self.hidden_size = units
+        self.encoder = nn.LSTM(input_dim, units, n_layers, batch_first=True)
+        self.decoder = nn.LSTM(input_dim, units, n_layers, batch_first=True)
+
+    def encoder_forward(self, x):
+        '''assumes batch first'''
+        batch_size = x.shape[0]
+        h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        self.encoder.flatten_parameters()                
+        o, (h, c) = self.encoder(x, (h, c))
+        return h[-1] # use last layer
+        
+    def forward(self, x):
+        '''assumes batch first and fix length, x (bs, T, d)'''
+        batch_size, T, d = x.shape
+        h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
+        encoded = self.encoder_forward(x).view(batch_size, 1, d)
+        decoded = torch.expand(-1, T, -1)
+        self.decoder.flatten_parameters()                
+        o, (h, c) = self.decoder(decoded, (h, c))
+        # o: (bs, T, num_directions*hidden_size)
+        return o
     
 ######################## synthetic moe models #############################
 class FIVNet(nn.Module):

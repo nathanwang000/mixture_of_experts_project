@@ -133,11 +133,20 @@ def create_cluster_model_settings(FLAGS, n_settings=30):
 
 ##### specific experiments
 # experiments that don't need clustering
-def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='mimic'):
+def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='mimic',
+                debug=None):
     '''
     MoE experiment
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'MOE'),
               ('--result_dir', FLAGS.result_dir),
               ('--dataname', dataname),
@@ -147,11 +156,20 @@ def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='mimic'):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='mimic'):
+def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='mimic',
+                debug=None):
     '''
     Global model only experiment
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'GLOBAL'),
               ('--result_dir', FLAGS.result_dir),              
               ('--dataname', dataname),              
@@ -161,11 +179,19 @@ def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='mimic'):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment6(FLAGS, expname='MTL_careunit_exp', test_time=False):
+def experiment6(FLAGS, expname='MTL_careunit_exp', test_time=False, debug=None):
     '''
     careunit MTL
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'MULTITASK'),
               ('--result_dir', FLAGS.result_dir),              
               ('--cohorts', 'careunit'),
@@ -175,11 +201,19 @@ def experiment6(FLAGS, expname='MTL_careunit_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment9(FLAGS, expname='MTL_saps_exp', test_time=False):
+def experiment9(FLAGS, expname='MTL_saps_exp', test_time=False, debug=None):
     '''
     saps quartile based MTL
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'MULTITASK'),
               ('--result_dir', FLAGS.result_dir),              
               ('--result_suffix', '_' + expname),
@@ -189,11 +223,20 @@ def experiment9(FLAGS, expname='MTL_saps_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment12(FLAGS, expname='separate_careunit_exp', test_time=False):
+def experiment12(FLAGS, expname='separate_careunit_exp', test_time=False,
+                 debug=None):
     '''
     careunit separate models
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'SEPARATE'),
               ('--result_dir', FLAGS.result_dir),              
               ('--cohorts', 'careunit'),
@@ -203,11 +246,19 @@ def experiment12(FLAGS, expname='separate_careunit_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment13(FLAGS, expname='separate_saps_exp', test_time=False):
+def experiment13(FLAGS, expname='separate_saps_exp', test_time=False, debug=None):
     '''
     saps quartile separate models
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'SEPARATE'),
               ('--result_dir', FLAGS.result_dir),              
               ('--cohorts', 'saps'),
@@ -217,11 +268,20 @@ def experiment13(FLAGS, expname='separate_saps_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment14(FLAGS, expname='careunit_feature_exp', test_time=False):
+def experiment14(FLAGS, expname='careunit_feature_exp', test_time=False,
+                 debug=None):
     '''
     careunit separate models
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+
     tasks = [[('--model_type', 'GLOBAL'),
               ('--result_dir', FLAGS.result_dir),              
               ('--cohorts', 'careunit'),
@@ -232,11 +292,19 @@ def experiment14(FLAGS, expname='careunit_feature_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     
-def experiment15(FLAGS, expname='saps_feature_exp', test_time=False):
+def experiment15(FLAGS, expname='saps_feature_exp', test_time=False, debug=None):
     '''
     saps quartile separate models
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'GLOBAL'),
               ('--result_dir', FLAGS.result_dir),              
               ('--cohorts', 'saps'),
@@ -275,11 +343,20 @@ def experiment16(FLAGS, expname='global_plus_mtl_feature_exp', test_time=False,
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     
 # experiments that require global model but not clustering
-def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False):
+def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False,
+                 debug=None):
     '''
     careunit snapshot
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'SNAPSHOT'),
               ('--result_dir', FLAGS.result_dir),              
               ('--cohorts', 'careunit'),
@@ -290,11 +367,19 @@ def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment11(FLAGS, expname='snapshot_saps_exp', test_time=False):
+def experiment11(FLAGS, expname='snapshot_saps_exp', test_time=False, debug=None):
     '''
     saps quartile based snapshot
     '''
     settings = create_joint_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+    
     tasks = [[('--model_type', 'SNAPSHOT'),
               ('--global_model_fn', FLAGS.global_model_fn),
               ('--result_dir', FLAGS.result_dir),              
@@ -305,15 +390,20 @@ def experiment11(FLAGS, expname='snapshot_saps_exp', test_time=False):
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False):
+def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False,
+                     debug=None):
     '''
     debug settings: see read me for manually tuned performance
     '''
     settings = create_joint_settings(FLAGS)
 
-    #### debug
-    # idx = 10
-    # settings = settings[idx:idx+1]
+    if debug is not None:
+        if type(debug) is list:
+            settings = [settings[idx] for idx in debug]
+        else:
+            idx = debug
+            settings = settings[idx:idx+1]
+
     settings = [[
         ('--lr', 0.001), ('--wd', 1e-4)
     ]]
@@ -351,8 +441,8 @@ def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False):
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 # experiments that requires clustering
-def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False, debug=None,
-                dataname='mimic'):
+def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False,
+                debug=None, dataname='mimic'):
     '''
     global clustering followed by mtl
     '''
@@ -580,29 +670,29 @@ def main():
     FLAGS = get_args()
     # experiment_debug(FLAGS, viz_time=False)
 
-    experiment1(FLAGS, test_time=True) # must for eicu
-    experiment2(FLAGS, test_time=True) # must for eicu
-    experiment6(FLAGS, test_time=True)
-    experiment9(FLAGS, test_time=True)
-    experiment12(FLAGS, test_time=True)
-    experiment13(FLAGS, test_time=True)
-    experiment14(FLAGS, test_time=True) # new
-    experiment15(FLAGS, test_time=True)    
-    experiment16(FLAGS, 'global_plus_mtl_feature_exp', test_time=True)
-    experiment16(FLAGS, 'ae_plus_mtl_feature_exp', test_time=True)
-    experiment16(FLAGS, 'val_curve_plus_mtl_feature_exp', test_time=True)
+    # experiment1(FLAGS, debug=11) # must for eicu
+    # experiment2(FLAGS, debug=25) # must for eicu
+    # experiment6(FLAGS, debug=18) # result
+    # experiment9(FLAGS, debug=6) # result
+    # experiment12(FLAGS, debug=18) # result
+    # experiment13(FLAGS, debug=18) # result
+    # experiment14(FLAGS, debug=10) # result
+    # experiment15(FLAGS, debug=18) # result
+    # experiment16(FLAGS, 'global_plus_mtl_feature_exp', debug=18) # result
+    # experiment16(FLAGS, 'ae_plus_mtl_feature_exp', debug=27) # result
+    # experiment16(FLAGS, 'val_curve_plus_mtl_feature_exp', debug=0) # result
     
     # ##### global model required
-    experiment10(FLAGS, test_time=True)
-    experiment11(FLAGS, test_time=True)
+    # experiment10(FLAGS, debug=11)
+    # experiment11(FLAGS, debug=22) # result
 
     # ##### cluster and models
-    experiment3(FLAGS, test_time=True, dataname='eicu') # must for eicu
-    experiment4(FLAGS, test_time=True) # must for eicu
-    experiment5(FLAGS, test_time=True) # d, good to have
-    experiment7(FLAGS, test_time=True) # good to have
-    experiment8(FLAGS, test_time=True) # d, good to have
-    experiment17(FLAGS, test_time=True) # new
+    # experiment3(FLAGS, debug=29) # must for eicu; # result
+    # experiment4(FLAGS, debug=13) # must for eicu
+    # experiment5(FLAGS, debug=19) # d, good to have
+    # experiment7(FLAGS, debug=25) # good to have
+    # experiment8(FLAGS, debug=0) # d, good to have # result
+    # experiment17(FLAGS, debug=1) 
 
 if __name__ == '__main__':
     main()
