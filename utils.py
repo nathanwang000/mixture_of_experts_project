@@ -67,7 +67,13 @@ def load_data(dataname, FLAGS):
             Y = pd.read_csv('eICU_data/population/mortality_48h.csv')['mortality_LABEL'].values        
             X = sparse.load_npz('eICU_data/mortality/X.npz') # (n, T, d1)
             s = sparse.load_npz('eICU_data/mortality/s.npz') # (n, d2)
-            
+
+        # for debug
+        if hasattr(FLAGS, 'debug') and FLAGS.debug:
+            X = X[:10]
+            s = s[:10]
+            Y = Y[:10]
+        
         # concat X and s
         X = sparse.concatenate(
             (
@@ -131,12 +137,14 @@ def getXY(loader):
     return X, Y
 
 def get_output(net, loader, device='cuda'):
-    net.eval()
+    if hasattr(net, 'eval'): # sometimes just given a function, so no eval
+        net.eval()
     o = []
     for x, y in loader:
         x, y = x.to(device), y.to(device)
         o.append(net(x).detach().cpu().numpy())
-    net.train()        
+    if hasattr(net, 'train'): # sometimes just given a function, so no eval
+        net.train()        
     return np.vstack(o)
 
 def get_y(loader):
@@ -322,10 +330,10 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
             
             # print out report
             print('epoch {:>3}: '.format(i) +
-                  ' '.join('{} {:.3f}'.format(
+                  ' '.join('{} {:.3e}'.format(
                       name, val
                   ) for name, val in train_report.items()) +
-                  (" val_{} {:.3f}".format(*val_name_value) if do_es else "") +
+                  (" val_{} {:.3e}".format(*val_name_value) if do_es else "") +
                   (" early stopping..." if stop else ""))
 
             # update log

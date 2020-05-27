@@ -108,8 +108,8 @@ def create_cluster_model_settings(FLAGS, n_settings=30):
             ('--wd', 10**np.random.uniform(-3,-10)),
             ('--num_clusters', np.random.choice([2, 3, 4, 5])),
             ('--latent_dim', np.random.choice([16, 100, 300, 500]))]
-        if np.random.choice(2) == 1:
-            cluster_setting.append('--pmt')
+        # if np.random.choice(2) == 1:
+        #     cluster_setting.append('--pmt')
         if np.random.choice(2) == 1:
             cluster_setting.append('--not_pt') # only affect validation curve approach
         cluster_settings.append(cluster_setting)
@@ -120,8 +120,6 @@ def create_cluster_model_settings(FLAGS, n_settings=30):
         model_setting.append(('--cohorts', 'custom'))
         if np.random.choice(2) == 1:
             model_setting.append('--sample_weights')
-        # if np.random.choice(2) == 1: # todo: this increases dim, in conflict with pmt
-        #     model_setting.append('--include_cohort_as_feature')
         if np.random.choice(2) == 1:
             model_setting.append('--pmt')
         model_settings.append(model_setting)
@@ -688,7 +686,7 @@ def main():
 
     # ##### cluster and models
     # experiment3(FLAGS, debug=29) # must for eicu; # result
-    # experiment4(FLAGS, debug=13) # must for eicu
+    experiment4(FLAGS, dataname='eicu') # must for eicu
     # experiment5(FLAGS, debug=19) # d, good to have
     # experiment7(FLAGS, debug=25) # good to have
     # experiment8(FLAGS, debug=0) # d, good to have # result

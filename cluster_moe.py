@@ -33,6 +33,7 @@ from models import Global_MIMIC_Cluster_Model, Seq_AE_Model
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
@@ -195,7 +196,8 @@ def train_seq_ae_pytorch(X_train, X_val, FLAGS):
     Returns: 
         encoder (pytorch model): trained model to encode to latent space.
     """
-    sequence_autoencoder = create_seq_ae_pytorch(X_train.shape[2], FLAGS.latent_dim)
+    model =create_seq_ae_pytorch(X_train.shape[2], FLAGS.latent_dim)
+    model = model.cuda()
     
     fname_suffix = get_suffix_fname_model(FLAGS)
     model_dir = '{}/clustering_models/seq_ae_pytorch_{}'.format(FLAGS.result_dir,
@@ -204,25 +206,26 @@ def train_seq_ae_pytorch(X_train, X_val, FLAGS):
 
     print(seq_ae_fn)
     if os.path.exists(seq_ae_fn):
-        return torch.load(seq_ae_fn)
+        return torch.load(seq_ae_fn).encoder_forward
     
     # fit the model
     print("Fitting Sequence Autoencoder ... ")    
-    optimizer = torch.optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.wd)
+    optimizer = torch.optim.Adam(model.parameters(),
+                                 lr=FLAGS.lr, weight_decay=FLAGS.wd)
     criterion = nn.MSELoss()
     get_c = partial(get_criterion, criterion=criterion)
     model, train_log = train(model,
                              create_loader(X_train, X_train),
                              criterion, optimizer,
                              FLAGS.ae_epochs,
-                             savename = model_dir
+                             savename = model_dir,
                              val_loader = create_loader(X_val, X_val),
                              es_named_criterion = ('loss', get_c, True),
                              verbose=True)
 
     joblib.dump(train_log, '{}/log'.format(model_dir))
     torch.save(model, seq_ae_fn)
-    return sequence_autoencoder.encoder_forward
+    return model.encoder_forward
 
 def train_assignment(FLAGS, k, assignment, loader, savename_suffix,
                      n_epochs=50, net=None,
@@ -330,8 +333,8 @@ def train_ae_pytorch(cluster_args):
     encoder = train_seq_ae_pytorch(X_train, X_val, FLAGS)
 
     # Get Embeddings
-    embedded_train = get_output(encoder, create_loader(X_train, y_train))
-    embedded_all = get_output(encoder, create_loader(X, y))
+    embedded_train = get_output(encoder, create_loader(X_train, X_train))
+    embedded_all = get_output(encoder, create_loader(X, X))
     return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS,
                                savename_suffix="_ae")
 
@@ -435,9 +438,16 @@ def main():
     X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
 
     # Train, val, test split
-    X_train, X_val, X_test, \
-    y_train, y_val, y_test, \
-    cohorts_train, cohorts_val, cohorts_test = stratified_split(X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
+    if FLAGS.debug:
+        X_train, X_val, X_test, \
+            y_train, y_val, y_test, \
+            cohorts_train, cohorts_val, cohorts_test = X, X, X, \
+                Y, Y, Y, \
+                cohort_col, cohort_col, cohort_col
+    else:
+        X_train, X_val, X_test, \
+            y_train, y_val, y_test, \
+            cohorts_train, cohorts_val, cohorts_test = stratified_split(X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
 
     # mark for change
     if FLAGS.global_model_fn is not None:
@@ -451,12 +461,11 @@ def main():
         global_model_fn = "dummy.m"
         
     if FLAGS.pmt:
-        net = torch.load(global_model_fn)
-
         feature_importance_fn = 'feature_importance1000.pkl'
         if os.path.exists(feature_importance_fn):
             feature_importance = joblib.load(feature_importance_fn)
         else:
+            net = torch.load(global_model_fn)            
             feature_importance = pmt_importance(net, X_train, y_train, bs=1000)
             joblib.dump(feature_importance, feature_importance_fn)
 

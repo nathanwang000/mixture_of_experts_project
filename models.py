@@ -187,10 +187,11 @@ class Seq_AE_Model(nn.Module):
     ''' sequence autoencoder model for the mimic dataset'''
     def __init__(self, input_dim, units, n_layers=1):
         super(self.__class__, self).__init__()
-        self.n_layers = n_layers
+        self.input_dim = input_dim
+        self.num_layers = n_layers
         self.hidden_size = units
         self.encoder = nn.LSTM(input_dim, units, n_layers, batch_first=True)
-        self.decoder = nn.LSTM(input_dim, units, n_layers, batch_first=True)
+        self.decoder = nn.LSTM(units, input_dim, n_layers, batch_first=True)
 
     def encoder_forward(self, x):
         '''assumes batch first'''
@@ -203,12 +204,12 @@ class Seq_AE_Model(nn.Module):
         
     def forward(self, x):
         '''assumes batch first and fix length, x (bs, T, d)'''
-        batch_size, T, d = x.shape
-        h = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
-        c = torch.zeros(self.num_layers, batch_size, self.hidden_size).cuda()
-        encoded = self.encoder_forward(x).view(batch_size, 1, d)
-        decoded = torch.expand(-1, T, -1)
-        self.decoder.flatten_parameters()                
+        batch_size, T, _ = x.shape
+        h = torch.zeros(self.num_layers, batch_size, self.input_dim).cuda()
+        c = torch.zeros(self.num_layers, batch_size, self.input_dim).cuda()
+        encoded = self.encoder_forward(x).view(batch_size, 1, self.hidden_size)
+        decoded = encoded.expand(-1, T, -1)
+        self.decoder.flatten_parameters()
         o, (h, c) = self.decoder(decoded, (h, c))
         # o: (bs, T, num_directions*hidden_size)
         return o
