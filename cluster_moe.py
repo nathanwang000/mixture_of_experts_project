@@ -287,6 +287,7 @@ def gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix):
         # Train GMM
         print("Fitting GMM ...")
         gm = GaussianMixture(n_components=FLAGS.num_clusters, tol=FLAGS.gmm_tol,
+                             # covariance_type='spherical', # jw: added;  should tune later
                              n_init=30, # jw: reported in paper
                              init_params='kmeans',
                              verbose=True)

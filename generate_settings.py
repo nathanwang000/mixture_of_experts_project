@@ -14,7 +14,7 @@ def get_args():
                         help="best global model file name in result_dir/logs/models/,\
                         example=10_global_exp.m")
     parser.add_argument("--result_dir", type=str, default='result',
-                        help="where result are saved. Type: String.")    
+                        help="where result are saved. Type: String.")
     parser.add_argument("--nc", default=1, type=int,
                         help="number of concurrent jobs, default 1")
     args = parser.parse_args()
@@ -144,7 +144,7 @@ def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='mimic',
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'MOE'),
               ('--result_dir', FLAGS.result_dir),
               ('--dataname', dataname),
@@ -167,10 +167,10 @@ def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='mimic',
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'GLOBAL'),
-              ('--result_dir', FLAGS.result_dir),              
-              ('--dataname', dataname),              
+              ('--result_dir', FLAGS.result_dir),
+              ('--dataname', dataname),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
     if test_time:
@@ -189,9 +189,9 @@ def experiment6(FLAGS, expname='MTL_careunit_exp', test_time=False, debug=None):
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'MULTITASK'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'careunit'),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
@@ -211,9 +211,9 @@ def experiment9(FLAGS, expname='MTL_saps_exp', test_time=False, debug=None):
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'MULTITASK'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--result_suffix', '_' + expname),
               ('--cohorts', 'saps')] +
              setting for setting in settings]
@@ -234,9 +234,9 @@ def experiment12(FLAGS, expname='separate_careunit_exp', test_time=False,
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'SEPARATE'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'careunit'),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
@@ -256,9 +256,9 @@ def experiment13(FLAGS, expname='separate_saps_exp', test_time=False, debug=None
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'SEPARATE'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'saps'),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
@@ -281,15 +281,15 @@ def experiment14(FLAGS, expname='careunit_feature_exp', test_time=False,
             settings = settings[idx:idx+1]
 
     tasks = [[('--model_type', 'GLOBAL'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'careunit'),
-              '--include_cohort_as_feature',              
+              '--include_cohort_as_feature',
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
     if test_time:
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
-    
+
 def experiment15(FLAGS, expname='saps_feature_exp', test_time=False, debug=None):
     '''
     saps quartile separate models
@@ -302,11 +302,11 @@ def experiment15(FLAGS, expname='saps_feature_exp', test_time=False, debug=None)
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'GLOBAL'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'saps'),
-              '--include_cohort_as_feature',              
+              '--include_cohort_as_feature',
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
     if test_time:
@@ -327,19 +327,19 @@ def experiment16(FLAGS, expname='global_plus_mtl_feature_exp', test_time=False,
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'GLOBAL'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'custom'),
               '--include_cohort_as_feature',
               ('--cohort_filepath', str(i) + '_' + cluster_name + '.npy'),
               ('--result_suffix', '_' + expname)] +
              setting for i, setting in enumerate(settings)]
-    
+
     if test_time:
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
-    
+
 # experiments that require global model but not clustering
 def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False,
                  debug=None):
@@ -354,9 +354,9 @@ def experiment10(FLAGS, expname='snapshot_careunit_exp', test_time=False,
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'SNAPSHOT'),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--cohorts', 'careunit'),
               ('--global_model_fn', FLAGS.global_model_fn),
               ('--result_suffix', '_' + expname)] +
@@ -377,10 +377,10 @@ def experiment11(FLAGS, expname='snapshot_saps_exp', test_time=False, debug=None
         else:
             idx = debug
             settings = settings[idx:idx+1]
-    
+
     tasks = [[('--model_type', 'SNAPSHOT'),
               ('--global_model_fn', FLAGS.global_model_fn),
-              ('--result_dir', FLAGS.result_dir),              
+              ('--result_dir', FLAGS.result_dir),
               ('--result_suffix', '_' + expname),
               ('--cohorts', 'saps')] +
              setting for setting in settings]
@@ -388,7 +388,7 @@ def experiment11(FLAGS, expname='snapshot_saps_exp', test_time=False, debug=None
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
-def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False,
+def experiment_debug_joint(FLAGS, expname='debug', test_time=False, viz_time=False,
                      debug=None):
     '''
     debug settings: see read me for manually tuned performance
@@ -407,13 +407,13 @@ def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False,
     ]]
 
     tasks = [[('--model_type', 'MULTITASK'),
-              ('--result_dir', FLAGS.result_dir),              
-              ('--epochs', 100),              
+              ('--result_dir', FLAGS.result_dir),
+              ('--epochs', 100),
               ('--global_model_fn', FLAGS.global_model_fn),
               ('--result_suffix', '_' + expname),
               ('--cohorts', 'saps')] +
              setting for setting in settings]
-    
+
     # tasks = [[('--model_type', 'MULTITASK'), # auroc 0.852
     #           ('--result_dir', FLAGS.result_dir),
     #           ('--epochs', 100),
@@ -431,7 +431,7 @@ def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False,
     #           '--include_cohort_as_feature',
     #           ('--cohorts', 'saps')] +
     #          setting for setting in settings]
-        
+
     if test_time:
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     if viz_time:
@@ -439,6 +439,45 @@ def experiment_debug(FLAGS, expname='debug', test_time=False, viz_time=False,
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 # experiments that requires clustering
+def experiment_debug_separate(FLAGS, expname='debug2', test_time=False,
+                              debug=None, dataname='mimic'):
+    '''
+    global clustering followed by mtl
+    '''
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            cluster_settings = [cluster_settings[idx] for idx in debug]
+            model_settings = [model_settings[idx] for idx in debug]
+        else:
+            idx = debug
+            cluster_settings = cluster_settings[idx:idx+1]
+            model_settings = model_settings[idx:idx+1]
+
+    cluster_settings = [[('--model_type', 'GLOBAL'),
+                         ('--result_dir', 'debug'),
+                         ('--dataname', dataname),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'MULTITASK'),
+                       ('--result_dir', 'debug'),
+                       ('--dataname', dataname),
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),
+                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+
 def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False,
                 debug=None, dataname='mimic'):
     '''
@@ -457,14 +496,14 @@ def experiment3(FLAGS, expname='global_plus_mtl_exp', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'GLOBAL'),
-                         ('--result_dir', FLAGS.result_dir),                         
-                         ('--dataname', dataname),                         
+                         ('--result_dir', FLAGS.result_dir),
+                         ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
-                       ('--result_dir', FLAGS.result_dir),                       
-                       ('--dataname', dataname),                       
+                       ('--result_dir', FLAGS.result_dir),
+                       ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -496,14 +535,14 @@ def experiment4(FLAGS, expname='ae_plus_mtl_exp', test_time=False, debug=None,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'AE'),
-                         ('--result_dir', FLAGS.result_dir),                         
+                         ('--result_dir', FLAGS.result_dir),
                          ('--global_model_fn', FLAGS.global_model_fn),
-                         ('--dataname', dataname),                         
+                         ('--dataname', dataname),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
-                       ('--result_dir', FLAGS.result_dir),                       
-                       ('--dataname', dataname),                       
+                       ('--result_dir', FLAGS.result_dir),
+                       ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -534,12 +573,12 @@ def experiment5(FLAGS, expname='val_curve_plus_mtl_exp', test_time=False, debug=
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'VAL_CURVE'),
-                         ('--result_dir', FLAGS.result_dir),                         
+                         ('--result_dir', FLAGS.result_dir),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
-                       ('--result_dir', FLAGS.result_dir),                       
+                       ('--result_dir', FLAGS.result_dir),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -569,14 +608,14 @@ def experiment7(FLAGS, expname='global_plus_snapshot_exp', test_time=False,
             idx = debug
             cluster_settings = cluster_settings[idx:idx+1]
             model_settings = model_settings[idx:idx+1]
-            
+
     cluster_settings = [[('--model_type', 'GLOBAL'),
-                         ('--result_dir', FLAGS.result_dir),                         
+                         ('--result_dir', FLAGS.result_dir),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
-                       ('--result_dir', FLAGS.result_dir),                       
+                       ('--result_dir', FLAGS.result_dir),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -606,14 +645,14 @@ def experiment17(FLAGS, expname='ae_plus_snapshot_exp', test_time=False,
             idx = debug
             cluster_settings = cluster_settings[idx:idx+1]
             model_settings = model_settings[idx:idx+1]
-            
+
     cluster_settings = [[('--model_type', 'AE'),
-                         ('--result_dir', FLAGS.result_dir),                         
+                         ('--result_dir', FLAGS.result_dir),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
-                       ('--result_dir', FLAGS.result_dir),                       
+                       ('--result_dir', FLAGS.result_dir),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -626,7 +665,7 @@ def experiment17(FLAGS, expname='ae_plus_snapshot_exp', test_time=False,
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
-    
+
 def experiment8(FLAGS, expname='val_curve_plus_snapshot_exp', test_time=False,
                 debug=None):
     '''
@@ -643,14 +682,14 @@ def experiment8(FLAGS, expname='val_curve_plus_snapshot_exp', test_time=False,
             idx = debug
             cluster_settings = cluster_settings[idx:idx+1]
             model_settings = model_settings[idx:idx+1]
-            
+
     cluster_settings = [[('--model_type', 'VAL_CURVE'),
-                         ('--result_dir', FLAGS.result_dir),                         
+                         ('--result_dir', FLAGS.result_dir),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
-                       ('--result_dir', FLAGS.result_dir),                       
+                       ('--result_dir', FLAGS.result_dir),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
                        ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
@@ -666,7 +705,8 @@ def experiment8(FLAGS, expname='val_curve_plus_snapshot_exp', test_time=False,
 
 def main():
     FLAGS = get_args()
-    # experiment_debug(FLAGS, viz_time=False)
+    experiment_debug_separate(FLAGS, debug=0)
+    # experiment_debug_joint(FLAGS, viz_time=False)
 
     # experiment1(FLAGS, debug=11) # must for eicu
     # experiment2(FLAGS, debug=25) # must for eicu
@@ -679,18 +719,18 @@ def main():
     # experiment16(FLAGS, 'global_plus_mtl_feature_exp', debug=18) # result
     # experiment16(FLAGS, 'ae_plus_mtl_feature_exp', debug=27) # result
     # experiment16(FLAGS, 'val_curve_plus_mtl_feature_exp', debug=0) # result
-    
+
     # ##### global model required
     # experiment10(FLAGS, debug=11)
     # experiment11(FLAGS, debug=22) # result
 
     # ##### cluster and models
     # experiment3(FLAGS, debug=29) # must for eicu; # result
-    experiment4(FLAGS, dataname='eicu', debug=1) # must for eicu
+    # experiment4(FLAGS, dataname='eicu', debug=1) # must for eicu
     # experiment5(FLAGS, debug=19) # d, good to have
     # experiment7(FLAGS, debug=25) # good to have
     # experiment8(FLAGS, debug=0) # d, good to have # result
-    # experiment17(FLAGS, debug=1) 
+    # experiment17(FLAGS, debug=1)
 
 if __name__ == '__main__':
     main()
