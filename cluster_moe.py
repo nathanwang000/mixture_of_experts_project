@@ -335,6 +335,7 @@ def train_ae_pytorch(cluster_args):
     # Get Embeddings
     embedded_train = get_output(encoder, create_loader(X_train, X_train))
     embedded_all = get_output(encoder, create_loader(X, X))
+    import pdb; pdb.set_trace()
     return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS,
                                savename_suffix="_ae")
 
@@ -450,15 +451,11 @@ def main():
             cohorts_train, cohorts_val, cohorts_test = stratified_split(X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
 
     # mark for change
-    if FLAGS.global_model_fn is not None:
-        # drop ".m"
-        global_model_dir = "{}/logs/checkpoints/{}".format(FLAGS.result_dir,
-                                                           FLAGS.global_model_fn[:-2])
-        global_model_fn = "{}/logs/models/{}".format(FLAGS.result_dir,
-                                                     FLAGS.global_model_fn)
-    else:
-        global_model_dir = "dummy"
-        global_model_fn = "dummy.m"
+    # drop ".m"
+    global_model_dir = "{}/logs/checkpoints/{}".format(FLAGS.result_dir,
+                                                       FLAGS.global_model_fn[:-2])
+    global_model_fn = "{}/logs/models/{}".format(FLAGS.result_dir,
+                                                 FLAGS.global_model_fn)
         
     if FLAGS.pmt:
         feature_importance_fn = 'feature_importance1000.pkl'

@@ -15,8 +15,19 @@ https://github.com/mit-ddig/multitask-patients
 
 * left to finish
 
-  - [ ] may need to write autoencoder in case tf version is too slow
-  - [ ] may need to write dataloader to perform other tasks
+  - [ ] rewrite data loading to using dataset
+    - [ ] utils: load_data return dataset of X, Y, and cohort_col; thus without
+      actually loading the data
+    - [ ] cluster_moe and moe: split dataset using indices instead of the actual
+      data; using torch.utils.data.Subset(dataset, indices) to get
+      train/val/test
+    - [ ] torch.utils.data.ConcatDataset(datasets) to concatenate the above
+      datasets; this should replace the create_loader and create_mtl_loader
+      function in moe
+  - [ ] make train to be able to stop less than a full epoch
+  - [ ] make the clustering procedure more efficient
+    - gmm was uing a full covariance matrix: 44min user time (4min wall time) for d=300 for 1 initialization
+    - kmeans would haved been much faster: 10s user time for d=300 for 1 initialization
 
 ** old
   1. [X] see the performance of random initialization on clean template

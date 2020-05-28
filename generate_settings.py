@@ -686,7 +686,7 @@ def main():
 
     # ##### cluster and models
     # experiment3(FLAGS, debug=29) # must for eicu; # result
-    experiment4(FLAGS, dataname='eicu') # must for eicu
+    experiment4(FLAGS, dataname='eicu', debug=1) # must for eicu
     # experiment5(FLAGS, debug=19) # d, good to have
     # experiment7(FLAGS, debug=25) # good to have
     # experiment8(FLAGS, debug=0) # d, good to have # result
