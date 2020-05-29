@@ -19,9 +19,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from sklearn.externals import joblib
 
-from run_mortality_prediction import stratified_split, bootstrap_predict
 from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model, Separate_MIMIC_Model
 from utils import train, get_criterion, get_output, load_data
+from dataset import MergeDataset, ColumnDataset, train_val_test_split, dataset2numpy
+from evaluate import bootstrap_metric
 
 def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
@@ -114,18 +115,11 @@ def make_deterministic():
     '''make the running of the models deterministic'''
     from numpy.random import seed
     seed(1)
-    from tensorflow import set_random_seed
-    set_random_seed(2)
+    import tensorflow as tf
+    tf.compat.v1.set_random_seed(2)
     torch.manual_seed(3)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-def cohorts2clusters(cohorts, all_tasks):
-    '''turn an array of str to array of int'''
-    res = np.zeros(cohorts.shape)
-    for i, task in enumerate(all_tasks):
-        res[cohorts==task] = i
-    return res.astype(int)
 
 def get_output_mtl(net, X, y, clusters, device='cuda'):
     '''clusters: assignment (cohorts) of shape (n,)'''
@@ -146,6 +140,7 @@ def get_output_mtl(net, X, y, clusters, device='cuda'):
 
 def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
     '''
+    DEPRECATED: not used
     X: numpy array of size (n, T, d)
     y: numpy array of size (n,)
     net: pytorch model
@@ -165,25 +160,24 @@ def pmt_importance(net, X_orig, y_orig, n_pmt=10, bs=None, device='cuda'):
             X, y = X_orig[indices], y_orig[indices]
             y_pred_orig = get_output(net, create_loader(X, y))
 
-        fp = [] # todo: currently doesn't consider correlation
+        fp = []
         indices = np.random.choice(len(X), bs)
         X_ = X[indices]
         for i in tqdm.tqdm(range(d)):
             X_p = copy.deepcopy(X)
-            X_p[:, :, i] = X_[:, :, i] # todo: temporal dimension assumes to be correlated
+            X_p[:, :, i] = X_[:, :, i]
             y_pred_pmt = get_output(net, create_loader(X_p, y))
             fimp = y_pred_orig - y_pred_pmt # (bs, 1); no softmax b/c already after sigmoid
             fp.append(fimp.ravel()) # fp: length d list of (bs,)
 
         fp = np.vstack(fp).T # (bs, d)
-        fps += np.abs(fp) # todo: play with this # fps += fp
+        fps += np.abs(fp) 
 
     return np.abs(fps / n_pmt).mean(0) # (d,)
 
 def save_output(model, model_name, X, y, cohorts, all_tasks, fname, FLAGS):
     if 'mtl' in model_name:
-        y_pred = get_output_mtl(model, X, y,
-                                cohorts2clusters(cohorts, all_tasks)).ravel()
+        y_pred = get_output_mtl(model, X, y, cohorts).ravel()
     else:
         loader = create_loader(X, y)        
         y_pred = get_output(model, loader).ravel()
@@ -240,31 +234,33 @@ def mtl_loss(yhat, y_z):
 ###### loaders
 def create_mtl_loader(X, y, clusters, samp_weights=None, batch_size=100, shuffle=False):
     '''
-    clusters: cluster assignment of shape (n,)
-    samp_weights: shape (n,) or None
-    pmt: scales input by permutation importance or not
+    clusters (pytorch dataset): cluster assignment of shape (n,)
+    samp_weights (pytorch dataset): shape (n,) or None
 
     dataset:
-        from tensor dataset (X, y) to (X, (y, clusters))
+        from pytorch dataset (X, y) to (X, (y, clusters))
     '''
-    y_z = np.vstack((y, clusters)).T
-    if samp_weights is not None:
-        y_z = np.hstack((y_z, samp_weights.reshape(-1, 1)))
-    loader = data.DataLoader(data.TensorDataset(
-        torch.from_numpy(X).float(), torch.from_numpy(y_z).float()),
-                             batch_size=batch_size, shuffle=shuffle)
+    if samp_weights is None:
+        y_z = MergeDataset(ColumnDataset(y, clusters))
+    else:
+        y_z = MergeDataset(ColumnDataset(y, clusters, samp_weights))
+
+    loader = data.DataLoader(ColumnDataset(X, y_z),
+                             batch_size=batch_size, shuffle=shuffle, num_workers=2)
+
     return loader
 
 def create_loader(X, y, samp_weights=None, batch_size=100, shuffle=False):
     '''
-    y: shape (n, )
-    samp_weights: shape (n,) or None
+    y (pytorch dataset): shape (n, )
+    samp_weights (pytorch dataset): shape (n,) or None
     '''
     if samp_weights is not None:
-        y = np.vstack((y, samp_weights)).T
-    loader = data.DataLoader(data.TensorDataset(
-        torch.from_numpy(X).float(), torch.from_numpy(y).float()),
-                             batch_size=batch_size, shuffle=shuffle)
+        y = MergeDataset(ColumnDataset(y, samp_weights))
+
+    loader = data.DataLoader(ColumnDataset(X, y),
+                             batch_size=batch_size, shuffle=shuffle, num_workers=2)
+
     return loader
 
 ###### models
@@ -294,14 +290,15 @@ def create_snapshot_model(model_args):
     # 3. finetune the resulting model
     tasks = model_args['tasks']
     X_val, y_val, cohorts_val = model_args['X_val'], model_args['y_val'], model_args['cohorts_val']
-    val_loader = create_loader(X_val, y_val, batch_size=100, shuffle=False)
+    val_loader = create_loader(X_val, y_val, batch_size=100, shuffle=False)    
+    # convert y_val and cohorts_val to numpy
+    y_val, cohorts_val = dataset2numpy(y_val).astype(int), dataset2numpy(cohorts_val).astype(int)
 
     experts_auc = [(None, 0) for _ in range(len(tasks))] # init to (n model, 0 auc)
     for fn in glob.glob(model_args['global_model_dir'] + "/epoch*.m"):
         net = torch.load(fn)
         y_pred = get_output(net, val_loader).ravel()
         for i, task in enumerate(tasks):
-            x_val_in_task = X_val[cohorts_val == task]
             y_val_in_task = y_val[cohorts_val == task]
             y_pred_in_task = y_pred[cohorts_val == task]
             try:
@@ -479,36 +476,37 @@ def get_model_fname_parts(model_name, FLAGS):
 def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
     '''
     model: pytorch model
-    X: (n, d) numpy array
-    y: (n,) numpy array
-    cohorts: (n,) numpy array
+    X: (n, d) pytorch dataset
+    y: (n,) pytorch dataset
+    cohorts: (n,) pytorch dataset
     all_tasks (Numpy array/list): List of tasks
     '''
     cohort_aucs = []
 
     loader = create_loader(X, y)
     if 'mtl' in model_name:
-        y_pred = get_output_mtl(model, X, y,
-                                cohorts2clusters(cohorts, all_tasks)).ravel()
+        y_pred = get_output_mtl(model, X, y, cohorts).ravel()
     else:
         y_pred = get_output(model, loader).ravel()
 
+    y = dataset2numpy(y).astype(int)
+    cohorts = dataset2numpy(cohorts).astype(int)
+    
     # all bootstrapped AUCs
     for task in all_tasks:
+        y_pred_in_cohort = y_pred[cohorts == task]
+        y_in_cohort = y[cohorts == task]
+
         if FLAGS.bootstrap:
-            all_aucs = bootstrap_predict(X, y, cohorts, task, y_pred,
-                                         return_everything=True,
-                                         test=True,
-                                         num_bootstrap_samples=FLAGS.num_bootstrap_samples)
+            all_aucs = bootstrap_metric(y_in_cohort, y_pred_in_cohort,
+                                        FLAGS.num_bootstrap_samples, roc_auc_score)
             cohort_aucs.append(np.array(all_aucs))
             min_auc, max_auc, avg_auc = np.min(all_aucs), np.max(all_aucs), np.mean(all_aucs)
             print('{} Model AUC on {}: [min: {}, max: {}, avg: {}]'.format(model_name,
                                                                            task, min_auc,
                                                                            max_auc, avg_auc))
         else:
-            y_pred_in_cohort = y_pred[cohorts == task]
-            y_true_in_cohort = y[cohorts == task]
-            auc = roc_auc_score(y_true_in_cohort, y_pred_in_cohort)
+            auc = roc_auc_score(y_in_cohort, y_pred_in_cohort)
             cohort_aucs.append(auc)
             print('{} Model AUC on {}: {}'.format(model_name, task, cohort_aucs[-1]))
 
@@ -524,9 +522,9 @@ def evaluation(model, model_name, X, y, cohorts, all_tasks, FLAGS):
                                                                        min_auc, max_auc, avg_auc))
 
         # Micro AUC
-        all_micro_aucs = bootstrap_predict(X, y, cohorts, 'all', y_pred,
-                                           return_everything=True, test=True,
-                                           num_bootstrap_samples=FLAGS.num_bootstrap_samples)
+        all_micro_aucs = bootstrap_metric(y, y_pred,
+                                          FLAGS.num_bootstrap_samples,
+                                          roc_auc_score)
         cohort_aucs = np.concatenate(
             (cohort_aucs, np.array([all_micro_aucs])))
 
@@ -581,15 +579,15 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     Args:
         model_name: model name when saved
         create_model: a function for creating the specific model
-        X_train (Numpy array): The X matrix w training examples.
-        y_train (Numpy array): The y matrix w training examples.
-        cohorts_train (Numpy array): List of cohort membership for each validation example.
-        X_val (Numpy array): The X matrix w validation examples.
-        y_val (Numpy array): The y matrix w validation examples.
-        cohorts_val (Numpy array): List of cohort membership for each validation example.
-        X_test (Numpy array): The X matrix w testing examples.
-        y_test (Numpy array): The y matrix w testing examples.
-        cohorts_test (Numpy array): List of cohort membership for each testing example.
+        X_train (pytorch dataset): The X matrix w training examples.
+        y_train (pytorch dataset): The y matrix w training examples.
+        cohorts_train (pytorch dataset): List of cohort membership for each validation example.
+        X_val (pytorch dataset): The X matrix w validation examples.
+        y_val (pytorch dataset): The y matrix w validation examples.
+        cohorts_val (pytorch dataset): List of cohort membership for each validation example.
+        X_test (pytorch dataset): The X matrix w testing examples.
+        y_test (pytorch dataset): The y matrix w testing examples.
+        cohorts_test (pytorch dataset): List of cohort membership for each testing example.
         all_tasks (Numpy array/list): List of tasks.
         FLAGS (dictionary): all the arguments.
         samp_weights: sample weights
@@ -624,11 +622,11 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
     batch_size = 100
     if 'mtl' in model_name:
         criterion = mtl_loss
-        train_loader = create_mtl_loader(X_train, y_train, cohorts2clusters(cohorts_train, all_tasks),
+        train_loader = create_mtl_loader(X_train, y_train, cohorts_train,
                                          samp_weights=samp_weights,
                                          batch_size=batch_size, shuffle=True)
         # no samp_weights for val; samp_weights is only for train
-        val_loader = create_mtl_loader(X_val, y_val, cohorts2clusters(cohorts_val, all_tasks),
+        val_loader = create_mtl_loader(X_val, y_val, cohorts_val,
                                        batch_size=batch_size, shuffle=False)
     else:
         criterion = sample_weighted_bce_loss
@@ -660,7 +658,7 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
         'units': FLAGS.lstm_layer_size,
         'num_dense_shared_layers': FLAGS.num_dense_shared_layers,
         'dense_shared_layer_size': FLAGS.dense_shared_layer_size,
-        'input_dim': X_train.shape[2], # (bs, T, d)
+        'input_dim': X_train[0][0].shape[1], # (bs, T, d); note X_train is a dataset
         'output_dim': 1,
         'n_multi_layers': FLAGS.num_multi_layers, # mtl layers
         'multi_units': FLAGS.multi_layer_size,
@@ -722,13 +720,6 @@ def main():
     # Load Data
     X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
 
-    # Include cohort membership as an additional feature
-    if FLAGS.include_cohort_as_feature:
-        cohort_col_onehot = pd.get_dummies(cohort_col).as_matrix()
-        cohort_col_onehot = np.expand_dims(cohort_col_onehot, axis=1)
-        cohort_col_onehot = np.tile(cohort_col_onehot, (1, 24, 1))
-        X = np.concatenate((X, cohort_col_onehot), axis=-1)
-
     # Train, val, test split
     if FLAGS.viz_time:
         X_train, X_val, X_test, \
@@ -738,59 +729,63 @@ def main():
     else:
         X_train, X_val, X_test, \
             y_train, y_val, y_test, \
-            cohorts_train, cohorts_val, cohorts_test = stratified_split(
-                X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
+            cohorts_train, cohorts_val, cohorts_test = train_val_test_split(
+                X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed,
+                stratify=dataset2numpy(Y).astype(int))
 
     # Sample Weights
     task_weights = dict()
-    all_tasks = sorted(np.unique(cohorts_train))
+    cohort_col_np = dataset2numpy(cohort_col).astype(int)
+    all_tasks = sorted(np.unique(cohort_col_np))
 
     for cohort in all_tasks:
-        num_in_cohort = len(np.where(cohorts_train == cohort)[0])
+        cohorts_train_np = dataset2numpy(cohorts_train).astype(int)
+        num_in_cohort = len(np.where(cohorts_train_np == cohort)[0])
         print("Number of people in cohort " +
               str(cohort) + ": " + str(num_in_cohort))
         task_weights[cohort] = len(X_train)*1.0/num_in_cohort
 
     if FLAGS.sample_weights:
         samp_weights = np.array([task_weights[cohort]
-                                 for cohort in cohorts_train])
+                                 for cohort in cohorts_train_np])
+        samp_weights = data.TensorDataset(torch.from_numpy(samp_weights).float())
     else:
         samp_weights = None
+    
+    # # Permutation importance: deprecated not used 
+    # if FLAGS.pmt:
+    #     # secondary mark for change
+    #     if FLAGS.global_model_fn is not None:
+    #         global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
+    #             '/models/' + FLAGS.global_model_fn
+    #     else:
+    #         # the last is pmt thus dropping
+    #         model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] 
+    #         global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
+    #             '/models/global_pytorch_' + "_".join(model_fname_parts) +\
+    #             FLAGS.result_suffix + ".m"
+    #     net = torch.load(global_model_fn)
 
-    # Permutation importance
-    if FLAGS.pmt:
-        # secondary mark for change
-        if FLAGS.global_model_fn is not None:
-            global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
-                '/models/' + FLAGS.global_model_fn
-        else:
-            # the last is pmt thus dropping
-            model_fname_parts = get_model_fname_parts("dummy", FLAGS)[1:-1] 
-            global_model_fn = '{}/logs'.format(FLAGS.result_dir) + \
-                '/models/global_pytorch_' + "_".join(model_fname_parts) +\
-                FLAGS.result_suffix + ".m"
-        net = torch.load(global_model_fn)
+    #     # if True: # this is used to investigate how stable bs is for pmt_importance
+    #     #     for bs in [100, X_train.shape[0], 500, 2000, 5000, 10000]:
+    #     #         feature_importance_fn = 'feature_importance{}.pkl'.format(bs)
+    #     #         feature_importance = pmt_importance(net, X_train, y_train, bs=bs)
+    #     #         joblib.dump(feature_importance, feature_importance_fn)
 
-        # if True: # this is used to investigate how stable bs is for pmt_importance
-        #     for bs in [100, X_train.shape[0], 500, 2000, 5000, 10000]:
-        #         feature_importance_fn = 'feature_importance{}.pkl'.format(bs)
-        #         feature_importance = pmt_importance(net, X_train, y_train, bs=bs)
-        #         joblib.dump(feature_importance, feature_importance_fn)
+    #     feature_importance_fn = 'feature_importance1000.pkl'
+    #     if os.path.exists(feature_importance_fn):
+    #         feature_importance = joblib.load(feature_importance_fn)
+    #     else:
+    #         feature_importance = pmt_importance(net, X_train, y_train, bs=1000)
+    #         joblib.dump(feature_importance, feature_importance_fn)
 
-        feature_importance_fn = 'feature_importance1000.pkl'
-        if os.path.exists(feature_importance_fn):
-            feature_importance = joblib.load(feature_importance_fn)
-        else:
-            feature_importance = pmt_importance(net, X_train, y_train, bs=1000)
-            joblib.dump(feature_importance, feature_importance_fn)
+    #     feature_importance = feature_importance / feature_importance.max()
+    #     X_train = X_train * feature_importance
+    #     X_val = X_val * feature_importance
+    #     X_test = X_test * feature_importance
+    #     X = X * feature_importance
 
-        feature_importance = feature_importance / feature_importance.max()
-        X_train = X_train * feature_importance
-        X_val = X_val * feature_importance
-        X_test = X_test * feature_importance
-        X = X * feature_importance
-
-    # Run model
+    ######### done with data loading; Run model
     run_model_args = [X_train, y_train, cohorts_train,
                       X_val, y_val, cohorts_val,
                       X_test, y_test, cohorts_test,

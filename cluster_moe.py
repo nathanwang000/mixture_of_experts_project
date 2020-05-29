@@ -7,8 +7,9 @@ import torch.utils.data as data
 
 from numpy.random import seed
 seed(1)
-from tensorflow import set_random_seed
-set_random_seed(2)
+import tensorflow as tf
+tf.compat.v1.set_random_seed(2)
+
 import torch
 torch.manual_seed(3)
 torch.backends.cudnn.deterministic = True
@@ -23,13 +24,12 @@ from keras.layers import Input, LSTM, RepeatVector
 from keras.optimizers import Adam
 from keras.models import load_model
 from keras.callbacks import EarlyStopping
-from run_mortality_prediction import stratified_split
 from sklearn.mixture import GaussianMixture
-from generate_clusters import create_seq_ae
 from sklearn.externals import joblib
 from utils import train, get_criterion, get_output, get_y, get_x, random_split_dataset, load_data
 from moe import create_loader, pmt_importance
 from models import Global_MIMIC_Cluster_Model, Seq_AE_Model
+from dataset import train_val_test_split, dataset2numpy, ColumnDataset, MergeDataset
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -82,7 +82,7 @@ def get_args():
 
 def val_curve_kmeans(curves, k=2, niters=10):
     '''
-    curves: (n, epochs)
+    curves: numpy array (n, epochs)
     output assignment, cluster_centers (best_epochs)
     '''
     n, epochs = curves.shape
@@ -137,49 +137,11 @@ def get_suffix_fname_cluster(FLAGS):
         fname_parts.append("pt")
     return "_".join(map(str, fname_parts))
 
-def train_seq_ae(X_train, X_val, FLAGS):
-    """
-    Train a sequence to sequence autoencoder.
-    Args: 
-        X_train (Numpy array): training data. (shape = n_samples x n_timesteps x n_features)
-        X_val (Numpy array): validation data.
-        FLAGS (dictionary): all provided arguments.
-    Returns: 
-        encoder (Keras model): trained model to encode to latent space.
-        sequence autoencoer (Keras model): trained autoencoder.
-    """
-    encoder, sequence_autoencoder = create_seq_ae(X_train, X_val, FLAGS.latent_dim, FLAGS.lr)
-    early_stopping = EarlyStopping(monitor='val_loss', patience=3)
-
-    fname_suffix = get_suffix_fname_model(FLAGS)
-    encoder_fn = '{}/clustering_models/encoder_{}'.format(FLAGS.result_dir,
-                                                          fname_suffix)
-    seq_ae_fn = '{}/clustering_models/seq_ae_{}'.format(FLAGS.result_dir,
-                                                        fname_suffix)
-
-    print(encoder_fn, seq_ae_fn)
-    if os.path.exists(encoder_fn) and os.path.exists(seq_ae_fn):
-        return load_model(encoder_fn), load_model(seq_ae_fn)
-    
-    # fit the model
-    print("Fitting Sequence Autoencoder ... ")
-    sequence_autoencoder.fit(X_train, X_train,
-                    epochs=FLAGS.ae_epochs,
-                    batch_size=128,
-                    shuffle=True,
-                    callbacks=[early_stopping],
-                    validation_data=(X_val, X_val))
-
-    encoder.save(encoder_fn)
-    sequence_autoencoder.save(seq_ae_fn)
-    return encoder, sequence_autoencoder
-
 def create_seq_ae_pytorch(input_dim, latent_dim):
     '''
     Build sequence autoencoder. 
     Args: 
-        X_train (Numpy array): training data. (shape = n_samples x n_timesteps x n_features)
-        X_val (Numpy array): validation data.
+        input_dim (int): input dimension.
         latent_dim (int): hidden representation dimension.
     Returns: 
         sequence_autoencoder (pytorch model): autoencoder model.
@@ -190,13 +152,14 @@ def train_seq_ae_pytorch(X_train, X_val, FLAGS):
     """
     Train a sequence to sequence autoencoder.
     Args: 
-        X_train (Numpy array): training data. (shape = n_samples x n_timesteps x n_features)
-        X_val (Numpy array): validation data.
+        X_train (pytorch dataset): training data. (shape = n_samples x n_timesteps x n_features)
+        X_val (pytorch dataset): validation data.
         FLAGS (dictionary): all provided arguments.
     Returns: 
         encoder (pytorch model): trained model to encode to latent space.
     """
-    model =create_seq_ae_pytorch(X_train.shape[2], FLAGS.latent_dim)
+    input_dim = X_train[0][0].shape[1]
+    model =create_seq_ae_pytorch(input_dim, FLAGS.latent_dim)
     model = model.cuda()
     
     fname_suffix = get_suffix_fname_model(FLAGS)
@@ -215,11 +178,11 @@ def train_seq_ae_pytorch(X_train, X_val, FLAGS):
     criterion = nn.MSELoss()
     get_c = partial(get_criterion, criterion=criterion)
     model, train_log = train(model,
-                             create_loader(X_train, X_train),
+                             create_loader(X_train, X_train, batch_size=64),
                              criterion, optimizer,
                              FLAGS.ae_epochs,
                              savename = model_dir,
-                             val_loader = create_loader(X_val, X_val),
+                             val_loader = create_loader(X_val, X_val, batch_size=64),
                              es_named_criterion = ('loss', get_c, True),
                              verbose=True)
 
@@ -227,10 +190,11 @@ def train_seq_ae_pytorch(X_train, X_val, FLAGS):
     torch.save(model, seq_ae_fn)
     return model.encoder_forward
 
-def train_assignment(FLAGS, k, assignment, loader, savename_suffix,
+def train_assignment(FLAGS, k, assignment, X, savename_suffix,
                      n_epochs=50, net=None,
                      criterion=nn.CrossEntropyLoss()):
     ''' 
+    X: pytorch dataset
     assignment: (n,) cluster assignments array
     mapp from input to assignment
     '''
@@ -243,20 +207,19 @@ def train_assignment(FLAGS, k, assignment, loader, savename_suffix,
     if os.path.exists(gate_fn):
         return torch.load(gate_fn)
     
-    X = get_x(loader) # (n, T, d)
-    dataset = data.TensorDataset(
-        torch.from_numpy(X).float(),
-        torch.from_numpy(assignment).long())
+    dataset = ColumnDataset(X,
+                            torch.TensorDataset(torch.from_numpy(assignment).long()))
 
     # create dataset
     dataset_train, dataset_val = random_split_dataset(dataset, [0.8, 0.2])
     train_loader = data.DataLoader(dataset_train,
-                                   batch_size=100, shuffle=True)
-    val_loader = data.DataLoader(dataset_val, batch_size=100,
-                                 shuffle=False)
+                                   batch_size=64, shuffle=True, num_workers=2)
+    val_loader = data.DataLoader(dataset_val, batch_size=64,
+                                 shuffle=False, num_workers=2)
 
     if net == None:
-        net = Global_MIMIC_Cluster_Model(X.shape[2], k)
+        input_dim = X[0][0].shape[1]
+        net = Global_MIMIC_Cluster_Model(input_dim, k)
         net = net.cuda()
 
     opt = torch.optim.Adam(net.parameters(),
@@ -287,7 +250,7 @@ def gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix):
         # Train GMM
         print("Fitting GMM ...")
         gm = GaussianMixture(n_components=FLAGS.num_clusters, tol=FLAGS.gmm_tol,
-                             # covariance_type='spherical', # jw: added;  should tune later
+                             covariance_type='spherical', # jw: added;  this is to let eicu run faster
                              n_init=30, # jw: reported in paper
                              init_params='kmeans',
                              verbose=True)
@@ -334,9 +297,8 @@ def train_ae_pytorch(cluster_args):
     encoder = train_seq_ae_pytorch(X_train, X_val, FLAGS)
 
     # Get Embeddings
-    embedded_train = get_output(encoder, create_loader(X_train, X_train))
-    embedded_all = get_output(encoder, create_loader(X, X))
-    import pdb; pdb.set_trace()
+    embedded_train = get_output(encoder, create_loader(X_train, X_train, batch_size=64))
+    embedded_all = get_output(encoder, create_loader(X, X, batch_size=64))
     return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS,
                                savename_suffix="_ae")
 
@@ -348,8 +310,8 @@ def train_input(cluster_args):
     FLAGS = cluster_args['FLAGS']
 
     # Get Embeddings: flatten T dimension
-    embedded_train = X_train.reshape(X_train.shape[0], -1)
-    embedded_all = X.reshape(X.shape[0], -1)
+    embedded_train = X_train.reshape(len(X_train), -1)
+    embedded_all = X.reshape(len(X), -1)
     return gmm_fit_and_predict(embedded_train, embedded_all, FLAGS, savename_suffix="_input")
 
 def train_global(cluster_args):
@@ -383,7 +345,7 @@ def train_global(cluster_args):
 def train_val_curve(cluster_args):
     # 1. learn validation curve: save as snapshot; reuse the code
     # 2. train from x to validation curve cluster
-    # 3. apply this on Train, val and test to save 
+    # 3. apply this on Train, val and test to save
     X = cluster_args['X']
     y = cluster_args['y']
     X_train = cluster_args['X_train']
@@ -392,14 +354,14 @@ def train_val_curve(cluster_args):
     y_val = cluster_args['y_val']
     global_model_dir = cluster_args['global_model_dir']
     global_model_fn = cluster_args['global_model_fn']
-    val_loader = cluster_args['val_loader']
     FLAGS = cluster_args['FLAGS']
 
     def sorted_by_epoch(l):
         return sorted(l, key=lambda s: int(re.search("epoch(.*)\.m", s).group(1)))
 
     curves = []
-    y_val = get_y(val_loader)
+    val_loader = create_loader(X_val, y_val, batch_size=64)
+    y_val = dataset2numpy(y_val)
     criterion = nn.BCELoss(reduction='none')
     for fn in sorted_by_epoch(glob.glob(global_model_dir + "/epoch*.m")):
         net = torch.load(fn)
@@ -416,18 +378,14 @@ def train_val_curve(cluster_args):
     k = FLAGS.num_clusters
     assignment, experts_epochs = val_curve_kmeans(curves, k=k, niters=10)
 
-    if FLAGS.not_pt:    
+    if FLAGS.not_pt:
         net = None
     else:
         net = torch.load(global_model_fn)
         net.rest[-2] = nn.Linear(net.rest[-2].in_features, k).cuda()
         net.rest = net.rest[:-1] # drop sigmoid layer
-    gate = train_assignment(FLAGS, k, assignment, val_loader, net=net, savename_suffix="_val_curve")
+    gate = train_assignment(FLAGS, k, assignment, X_val, net=net, savename_suffix="_val_curve")
 
-    # # for debug
-    # cluster_preds_val = get_output(gate, create_loader(X_val, y_val)).argmax(1)
-    # joblib.dump(cluster_preds_val, "val_assignments.pkl")
-    
     # Get cluster membership: from (n, k) -> (n,)
     cluster_preds = get_output(gate, create_loader(X, y)).argmax(1)
     return cluster_preds
@@ -440,7 +398,7 @@ def main():
     X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
 
     # Train, val, test split
-    if FLAGS.debug:
+    if FLAGS.debug: # todo: change this
         X_train, X_val, X_test, \
             y_train, y_val, y_test, \
             cohorts_train, cohorts_val, cohorts_test = X, X, X, \
@@ -449,30 +407,33 @@ def main():
     else:
         X_train, X_val, X_test, \
             y_train, y_val, y_test, \
-            cohorts_train, cohorts_val, cohorts_test = stratified_split(X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed)
+            cohorts_train, cohorts_val, cohorts_test = train_val_test_split(
+                X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed,
+                stratify=dataset2numpy(Y).astype(int)) # assume Y is tensor dataset
 
+    # if FLAGS.pmt:
+    #     feature_importance_fn = 'feature_importance1000.pkl'
+    #     if os.path.exists(feature_importance_fn):
+    #         feature_importance = joblib.load(feature_importance_fn)
+    #     else:
+    #         net = torch.load(global_model_fn)            
+    #         feature_importance = pmt_importance(net, X_train, y_train, bs=1000)
+    #         joblib.dump(feature_importance, feature_importance_fn)
+
+    #     feature_importance = feature_importance / feature_importance.max()
+    #     X_train = X_train * feature_importance
+    #     X_val = X_val * feature_importance
+    #     X_test = X_test * feature_importance        
+    #     X = X * feature_importance
+
+    ####### done with data loading    
     # mark for change
     # drop ".m"
     global_model_dir = "{}/logs/checkpoints/{}".format(FLAGS.result_dir,
                                                        FLAGS.global_model_fn[:-2])
     global_model_fn = "{}/logs/models/{}".format(FLAGS.result_dir,
                                                  FLAGS.global_model_fn)
-        
-    if FLAGS.pmt:
-        feature_importance_fn = 'feature_importance1000.pkl'
-        if os.path.exists(feature_importance_fn):
-            feature_importance = joblib.load(feature_importance_fn)
-        else:
-            net = torch.load(global_model_fn)            
-            feature_importance = pmt_importance(net, X_train, y_train, bs=1000)
-            joblib.dump(feature_importance, feature_importance_fn)
-
-        feature_importance = feature_importance / feature_importance.max()
-        X_train = X_train * feature_importance
-        X_val = X_val * feature_importance
-        X_test = X_test * feature_importance        
-        X = X * feature_importance
-
+    
     cluster_args = {
         'X': X,
         'y': Y,
@@ -480,7 +441,6 @@ def main():
         'y_train': y_train,
         'X_val': X_val,
         'y_val': y_val,        
-        'val_loader': create_loader(X_val, y_val),
         'FLAGS': FLAGS,
         'global_model_fn': global_model_fn,
         'global_model_dir': global_model_dir,

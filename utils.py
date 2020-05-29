@@ -17,13 +17,24 @@ from torch import nn
 from torch.utils.data import DataLoader, Subset
 import sparse
 from run_mortality_prediction import load_processed_data
+from dataset import ColumnDataset, MergeDataset, FileDataset
+from sklearn.externals import joblib
+
+def cohorts2clusters(cohorts, all_tasks=None):
+    '''turn an array of str to array of int'''
+    if all_tasks is None:
+        all_tasks = sorted(np.unique(cohorts))
+    res = np.zeros(cohorts.shape)
+    for i, task in enumerate(all_tasks):
+        res[cohorts==task] = i
+    return res.astype(int)
 
 def load_data(dataname, FLAGS):
     '''
-    RETURN
+    RETURN: datasets
         X: (n, T, d)
         Y: (n,)
-        cohort_col: (n,) of strings of cohort names
+        cohort_col: (n,) of strings of cohort names (changed to strings of int)
     '''
     print("dataname is: {}".format(dataname))
     datanames = ['mimic', 'eicu']
@@ -45,59 +56,70 @@ def load_data(dataname, FLAGS):
             cohort_col = np.load('{}/cluster_membership/'.format(FLAGS.result_dir) +\
                                  FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
+            
+        # convert to dataset
+        X = data.TensorDataset(torch.from_numpy(X).float())
+
     elif dataname == 'eicu':
         print('using eICU cohort {}'.format(FLAGS.eicu_cohort))
         if FLAGS.eicu_cohort == 'ARF4':
+            path  = 'eICU_data/ARF_4.0h_download/data'
             Y = pd.read_csv('eICU_data/population/ARF_4.0h.csv')['ARF_LABEL'].values
-            X = sparse.load_npz('eICU_data/ARF_4.0h_download/X.npz') # (n, T, d1)
-            s = sparse.load_npz('eICU_data/ARF_4.0h_download/s.npz') # (n, d2)
         elif FLAGS.eicu_cohort == 'ARF12':
+            path = 'eICU_data/ARF_12.0h/data'
             Y = pd.read_csv('eICU_data/population/ARF_12.0h.csv')['ARF_LABEL'].values
-            X = sparse.load_npz('eICU_data/ARF_12.0h/X.npz') # (n, T, d1)
-            s = sparse.load_npz('eICU_data/ARF_12.0h/s.npz') # (n, d2)
         elif FLAGS.eicu_cohort == 'Shock4':
+            path = 'eICU_data/Shock_4.0h_download/data'
             Y = pd.read_csv('eICU_data/population/Shock_4.0h.csv')['Shock_LABEL'].values
-            X = sparse.load_npz('eICU_data/Shock_4.0h_download/X.npz') # (n, T, d1)
-            s = sparse.load_npz('eICU_data/Shock_4.0h_download/s.npz') # (n, d2)
         elif FLAGS.eicu_cohort == 'Shock12':
+            path = 'eICU_data/Shock_12.0h/data'
             Y = pd.read_csv('eICU_data/population/Shock_12.0h.csv')['Shock_LABEL'].values
-            X = sparse.load_npz('eICU_data/Shock_12.0h/X.npz') # (n, T, d1)
-            s = sparse.load_npz('eICU_data/Shock_12.0h/s.npz') # (n, d2)
         elif FLAGS.eicu_cohort == 'mortality':
+            path = 'eICU_data/mortality/data'
             Y = pd.read_csv('eICU_data/population/mortality_48h.csv')['mortality_LABEL'].values        
-            X = sparse.load_npz('eICU_data/mortality/X.npz') # (n, T, d1)
-            s = sparse.load_npz('eICU_data/mortality/s.npz') # (n, d2)
 
-        # for debug
-        if hasattr(FLAGS, 'debug') and FLAGS.debug:
-            X = X[:10]
-            s = s[:10]
-            Y = Y[:10]
-        
-        # concat X and s
-        X = sparse.concatenate(
-            (
-                X, # (n, T, d1)
-                sparse.concatenate(
-                    # (n, d2) => (n, 1, d2) => (n, T, d2)
-                    [s.reshape((-1, 1, s.shape[1]))] * X.shape[1],
-                    axis=1)
-            ),
-            axis=2
-        ) # about 32g memory for mortality
-
-        print('prior to todense')
-        X = X.todense()
-
+        if not os.path.exists(path):
+            assert False, "I should have already done this step off-line!"
+            print('loading data and partitioning the data in {}'.format(path))
+            os.system('mkdir -p {}'.format(path))
+            dirname = os.path.dirname(path)
+            X = sparse.load_npz(os.path.join(dirname, 'X.npz')) # (n, T, d1)
+            s = sparse.load_npz(os.path.join(dirname, 's.npz')) # (n, d2)
+            for i in range(len(X)):
+                item = np.concatenate([
+                    X[i].todense(),
+                    s[i].todense().reshape(1, -1).repeat(X[i].shape[0], axis=0)],
+                                      axis=1)
+                joblib.dump(torch.from_numpy(item).float(), '{}/{}.pkl'.format(path, i))
+            
+        X = FileDataset(path)            
+            
         if not hasattr(FLAGS, 'cohorts'): # for cluster
-            cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
+            cohort_col = np.array(['0' for _ in range(len(Y))]) # dummy cohort
         elif FLAGS.cohorts == 'custom':
             cohort_col = np.load('{}/cluster_membership/'.format(FLAGS.result_dir) +\
                                  FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
         else:
-            cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
+            cohort_col = np.array(['0' for _ in range(len(Y))]) # dummy cohort
 
+    #### common shared data processing procedures
+    Y = data.TensorDataset(torch.from_numpy(Y).float())
+    cohort_col = cohorts2clusters(cohort_col)
+    # Augment X
+    # Include cohort membership as an additional feature
+    if hasattr(FLAGS, 'include_cohort_as_feature') and FLAGS.include_cohort_as_feature:
+        cohort_col_onehot = pd.get_dummies(cohort_col).values
+        cohort_col_onehot = np.expand_dims(cohort_col_onehot, axis=1)
+        # assume fixed length X
+        cohort_col_onehot = np.tile(cohort_col_onehot, (1, X[0][0].shape[0], 1)) 
+        cohort_col_onehot = data.TensorDataset(torch.from_numpy(cohort_col_onehot).float())
+        # concatenate dataset
+        X = MergeDataset(ColumnDataset(X, cohort_col_onehot), axis=1)
+
+    # convert cohort_col to dataset
+    cohort_col = data.TensorDataset(torch.from_numpy(cohort_col).float())
+    
     print('finished loading data')
     return X, Y, cohort_col
 
