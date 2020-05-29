@@ -1,6 +1,5 @@
 # Import things
 from numpy.random import seed
-from tensorflow import set_random_seed
 
 import os
 import sys
@@ -379,7 +378,8 @@ def get_bootstrapped_dataset(X, y, preds, cohorts, index=0, test=False, num_boot
     return all_X_bootstrappped, all_y_bootstrapped, all_preds_bootstrapped, all_cohorts_bootstrapped
 
 
-def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, preds_orig, return_everything=False, test=False, all_tasks=[], num_bootstrap_samples=100):
+def bootstrap_predict(X_orig, y_orig, cohorts_orig, task, preds_orig, return_everything=False, test=False,
+                      all_tasks=[], num_bootstrap_samples=100):
     """ 
     Evaluates model on each of the num_bootstrap_samples sets. 
     Args: 
@@ -1279,7 +1279,8 @@ if __name__ == "__main__":
     FLAGS = get_args()
     if not FLAGS.random_run: # jw: added
         seed(1)
-        set_random_seed(2)
+        import tensorflow as tf
+        tf.compat.v1.set_random_seed(2)
 
     # Limit GPU usage.
     # os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_num # jw: handles externally

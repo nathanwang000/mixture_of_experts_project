@@ -15,22 +15,30 @@ https://github.com/mit-ddig/multitask-patients
 
 * TODO left to finish
 
-  - [ ] rewrite data loading to using dataset
-    - [ ] utils: load_data return dataset of X, Y, and cohort_col; thus without
+  - [ ] refactor the pipeline for general training; later could add in hao's idea
+  - [-] rewrite data loading to using dataset
+    - [ ] preprocess to save X and Y
+    - [X] utils: load_data return dataset of X, Y, and cohort_col; thus without
       actually loading the data
-    - [ ] cluster_moe and moe: split dataset using indices instead of the actual
+    - [X] cluster_moe and moe: split dataset using indices instead of the actual
       data; using torch.utils.data.Subset(dataset, indices) to get
       train/val/test
-    - [ ] torch.utils.data.ConcatDataset(datasets) to concatenate the above
-      datasets; this should replace the create_loader and create_mtl_loader
-      function in moe
+    - [X] concatenate the above datasets; this should replace the create_loader
+      and create_mtl_loader function in moe
+    - [X] rewrite evaluation:bootstrap_predict to use dataloader
+    - [X] go through cluster_moe, moe make sure X.shape is ok for dataloader
+    - [X] go through everything that uses TensorDataset
+  - [ ] run a small n experiment of MIMIC-III to make sure no bug
   - [ ] make train to be able to stop less than a full epoch
-  - [ ] make the clustering procedure more efficient
+  - [X] make the clustering procedure more efficient: use spherical
     - gmm was uing a full covariance matrix: 44min user time (4min wall time)
       for d=300 for 1 initialization
       - need to see if covariance_type have an effect on the result (other
         covariance types are faster)
-    - kmeans would haved been much faster: 10s user time for d=300 for 1 initialization
+    - kmeans would haved been much faster: 10s user time for d=300 for 1
+      initialization
+  - [ ] get result that jenna want: make mtl or what a hyper parameter; make
+    dependent and independent as a hyperparameter
 
 ** old
   1. [X] see the performance of random initialization on clean template

@@ -17,13 +17,23 @@ from torch import nn
 from torch.utils.data import DataLoader, Subset
 import sparse
 from run_mortality_prediction import load_processed_data
+from dataset import ColumnDataset, MergeDataset
+
+def cohorts2clusters(cohorts, all_tasks=None):
+    '''turn an array of str to array of int'''
+    if all_tasks is None:
+        all_tasks = sorted(np.unique(cohorts))
+    res = np.zeros(cohorts.shape)
+    for i, task in enumerate(all_tasks):
+        res[cohorts==task] = i
+    return res.astype(int)
 
 def load_data(dataname, FLAGS):
     '''
-    RETURN
+    RETURN: datasets
         X: (n, T, d)
         Y: (n,)
-        cohort_col: (n,) of strings of cohort names
+        cohort_col: (n,) of strings of cohort names (changed to strings of int)
     '''
     print("dataname is: {}".format(dataname))
     datanames = ['mimic', 'eicu']
@@ -45,7 +55,12 @@ def load_data(dataname, FLAGS):
             cohort_col = np.load('{}/cluster_membership/'.format(FLAGS.result_dir) +\
                                  FLAGS.cohort_filepath)
             cohort_col = np.array([str(c) for c in cohort_col])
+            
+        # convert to dataset
+        X = data.TensorDataset(torch.from_numpy(X).float())
+
     elif dataname == 'eicu':
+        # todo: return dataset
         print('using eICU cohort {}'.format(FLAGS.eicu_cohort))
         if FLAGS.eicu_cohort == 'ARF4':
             Y = pd.read_csv('eICU_data/population/ARF_4.0h.csv')['ARF_LABEL'].values
@@ -98,6 +113,23 @@ def load_data(dataname, FLAGS):
         else:
             cohort_col = np.array(['0' for _ in range(len(s))]) # dummy cohort
 
+    #### common shared data processing procedures
+    Y = data.TensorDataset(torch.from_numpy(Y).float())
+    cohort_col = cohorts2clusters(cohort_col)
+    # Augment X
+    # Include cohort membership as an additional feature
+    if hasattr(FLAGS, 'include_cohort_as_feature') and FLAGS.include_cohort_as_feature:
+        cohort_col_onehot = pd.get_dummies(cohort_col).values
+        cohort_col_onehot = np.expand_dims(cohort_col_onehot, axis=1)
+        # assume fixed length X
+        cohort_col_onehot = np.tile(cohort_col_onehot, (1, X[0][0].shape[0], 1)) 
+        cohort_col_onehot = data.TensorDataset(torch.from_numpy(cohort_col_onehot).float())
+        # concatenate dataset
+        X = MergeDataset(ColumnDataset(X, cohort_col_onehot), axis=1)
+
+    # convert cohort_col to dataset
+    cohort_col = data.TensorDataset(torch.from_numpy(cohort_col).float())
+    
     print('finished loading data')
     return X, Y, cohort_col
 

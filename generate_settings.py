@@ -407,11 +407,14 @@ def experiment_debug_joint(FLAGS, expname='debug', test_time=False, viz_time=Fal
     ]]
 
     tasks = [[('--model_type', 'MULTITASK'),
-              ('--result_dir', FLAGS.result_dir),
+              ('--result_dir', 'debug'),
+              '--include_cohort_as_feature',
+              # '--test_time',
+              # '--bootstrap',              
               ('--epochs', 100),
               ('--global_model_fn', FLAGS.global_model_fn),
               ('--result_suffix', '_' + expname),
-              ('--cohorts', 'saps')] +
+              ('--cohorts', 'careunit')] +
              setting for setting in settings]
 
     # tasks = [[('--model_type', 'MULTITASK'), # auroc 0.852
@@ -456,7 +459,7 @@ def experiment_debug_separate(FLAGS, expname='debug2', test_time=False,
             cluster_settings = cluster_settings[idx:idx+1]
             model_settings = model_settings[idx:idx+1]
 
-    cluster_settings = [[('--model_type', 'GLOBAL'),
+    cluster_settings = [[('--model_type', 'AE'),
                          ('--result_dir', 'debug'),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
