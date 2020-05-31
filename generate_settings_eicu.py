@@ -286,10 +286,10 @@ def experiment3(FLAGS, expname='mtl_od', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
                 debug=None, dataname='eicu'):
@@ -327,10 +327,10 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
 
 def experiment5(FLAGS, expname='mtl_oi', test_time=False,
                 debug=None, dataname='eicu'):
@@ -450,10 +450,10 @@ def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
 
 def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
                 debug=None, dataname='eicu'):
@@ -505,14 +505,14 @@ def main():
     3. mtl with [ae|global|val_curve]
     4. snapshot with [ae|global|val_curve]
     '''
-    # experiment1(FLAGS, debug=range(10, 30))
-    # experiment2(FLAGS, debug=range(10, 30))
+    # experiment1(FLAGS)
+    # experiment2(FLAGS)
     # #### need global model
-    experiment3(FLAGS)
-    experiment4(FLAGS)
+    # experiment3(FLAGS)
+    experiment4(FLAGS) # need to rerun        
     # experiment5(FLAGS) # slowest
-    experiment6(FLAGS)
-    experiment7(FLAGS)
+    experiment6(FLAGS) # need to rerun
+    experiment7(FLAGS) # need to rerun
     # experiment8(FLAGS) # also slow but once 5 is done, can reuse
 
 if __name__ == '__main__':

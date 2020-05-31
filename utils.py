@@ -61,7 +61,6 @@ def load_data(dataname, FLAGS):
         X = data.TensorDataset(torch.from_numpy(X).float())
 
     elif dataname == 'eicu':
-        # todo: return dataset
         print('using eICU cohort {}'.format(FLAGS.eicu_cohort))
         if FLAGS.eicu_cohort == 'ARF4':
             path  = 'eICU_data/ARF_4.0h_download/data'
@@ -120,7 +119,7 @@ def load_data(dataname, FLAGS):
 
     # convert cohort_col to dataset
     cohort_col = data.TensorDataset(torch.from_numpy(cohort_col).float())
-    
+
     print('finished loading data')
     return X, Y, cohort_col
 

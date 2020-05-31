@@ -4,6 +4,7 @@ from functools import partial
 import torch
 from torch import nn
 import torch.utils.data as data
+from torch.utils.data import DataLoader, Subset
 
 from numpy.random import seed
 seed(1)
@@ -33,7 +34,8 @@ from dataset import train_val_test_split, dataset2numpy, ColumnDataset, MergeDat
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("--train_data_subset_path", default=None, type=str,
+                        help='subset indices for the data; e.g. eICU_data/mortality/pct_{pct}_train_indices/0.pkl')
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
@@ -208,7 +210,7 @@ def train_assignment(FLAGS, k, assignment, X, savename_suffix,
         return torch.load(gate_fn)
     
     dataset = ColumnDataset(X,
-                            torch.TensorDataset(torch.from_numpy(assignment).long()))
+                            data.TensorDataset(torch.from_numpy(assignment).long()))
 
     # create dataset
     dataset_train, dataset_val = random_split_dataset(dataset, [0.8, 0.2])
@@ -398,19 +400,20 @@ def main():
     X, Y, cohort_col = load_data(FLAGS.dataname, FLAGS)
 
     # Train, val, test split
-    if FLAGS.debug: # todo: change this
-        X_train, X_val, X_test, \
-            y_train, y_val, y_test, \
-            cohorts_train, cohorts_val, cohorts_test = X, X, X, \
-                Y, Y, Y, \
-                cohort_col, cohort_col, cohort_col
-    else:
-        X_train, X_val, X_test, \
-            y_train, y_val, y_test, \
-            cohorts_train, cohorts_val, cohorts_test = train_val_test_split(
-                X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed,
-                stratify=dataset2numpy(Y).astype(int)) # assume Y is tensor dataset
+    X_train, X_val, X_test, \
+        y_train, y_val, y_test, \
+        cohorts_train, cohorts_val, cohorts_test = train_val_test_split(
+            X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed,
+            stratify=dataset2numpy(Y).astype(int)) # assume Y is tensor dataset
 
+    # use smaller training set, but keep val and test the same
+    if FLAGS.train_data_subset_path is not None:
+        # assumes data_subset_path gives a numpy array
+        idx = joblib.load(FLAGS.train_data_subset_path)
+        X_train = Subset(X, idx)
+        y_train = Subset(Y, idx)
+        cohorts_train = Subset(cohort_col, idx)
+    
     # if FLAGS.pmt:
     #     feature_importance_fn = 'feature_importance1000.pkl'
     #     if os.path.exists(feature_importance_fn):

@@ -8,6 +8,7 @@ import copy, glob
 import torch
 from torch import nn
 import torch.utils.data as data
+from torch.utils.data import DataLoader, Subset
 torch.set_num_threads(1)
 
 import os, tqdm
@@ -26,6 +27,8 @@ from evaluate import bootstrap_metric
 
 def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
+    parser.add_argument("--train_data_subset_path", default=None, type=str,
+                        help='subset indices for the data; e.g. eICU_data/mortality/pct_{pct}_train_indices/0.pkl')
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
@@ -733,6 +736,14 @@ def main():
                 X, Y, cohort_col, train_val_random_seed=FLAGS.train_val_random_seed,
                 stratify=dataset2numpy(Y).astype(int))
 
+    # use smaller training set, but keep val and test the same
+    if FLAGS.train_data_subset_path is not None:
+        # assumes data_subset_path gives a numpy array
+        idx = joblib.load(FLAGS.train_data_subset_path)
+        X_train = Subset(X, idx)
+        y_train = Subset(Y, idx)
+        cohorts_train = Subset(cohort_col, idx)
+    
     # Sample Weights
     task_weights = dict()
     cohort_col_np = dataset2numpy(cohort_col).astype(int)

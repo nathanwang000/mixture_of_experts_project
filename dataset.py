@@ -94,6 +94,9 @@ def train_val_test_split(*datasets, **kwargs):
             Subset(dataset, idx_val),
             Subset(dataset, idx_test),            
         ])
+
+    # for use of split train data
+    # joblib.dump(idx_train, 'train_idx.pkl')
     return res
 
 def dataset2numpy(dataset):

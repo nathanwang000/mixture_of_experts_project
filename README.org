@@ -13,6 +13,13 @@ https://github.com/mit-ddig/multitask-patients
    generate_clusters.py: Jen's code to perform clustering
    cluster_moe.py: my code to perform clustering
 
+* TODO Future todos
+  - [ ] (later) refactor the pipeline for general training; later could add in
+    hao's idea
+  - [ ] make train to be able to stop less than a full epoch
+  - [ ] think about tune.py how to record error
+  - [ ] add a progress bar to train
+
 * TODO left to finish
 
   - [X] rewrite data loading to using dataset
@@ -38,21 +45,18 @@ https://github.com/mit-ddig/multitask-patients
     dependent and independent as a hyperparameter; make clustering methods batch size 64,
     num_workers 2
 
-** TODO today
-   SCHEDULED: <2020-05-30 Sat>
-
-  - [ ] update draft for real experiments and introduction (12-2)
-
    SCHEDULED: <2020-05-31 Sun>
-  - [ ] run a small n experiment of MIMIC-III to make sure no bugs 
+  - [ ] finish the draft except for validation data
+  - [ ] check if the best models are on the edge of the search range
+  - [ ] update to Jenna (12-8 pm calling it!): only write the unambiguous part:
+    the setup and motivation, leave the rest as flexible as possible, also
+    convert to the correct format
+    Shock take 6 min to run: translate to 50 hours (for 10 seed)
+    Mortality is quick (5 hours to get 6 seed)
+    ARF takes 3 min to run (5 hour 2 seed): 25 hours (for 10 seed)
+  - [ ] run a small n experiment of mortality: remember to use the same
+    validation and test set when reporting (apply it after train/val/test split)
   - [ ] look at validation data: debug
-
-** Future
-  - [ ] (later) refactor the pipeline for general training; later could add in
-    hao's idea
-  - [ ] make train to be able to stop less than a full epoch
-  - [ ] think about tune.py how to record error
-  - [ ] add a progress bar to train
 
 ** old
   1. [X] see the performance of random initialization on clean template
