@@ -15,7 +15,7 @@ def get_args():
                         example=10_global_exp.m")
     parser.add_argument("--eicu_cohort", type=str, required=True,
                         choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],
-                        help="the cohort for eicu")                            
+                        help="the cohort for eicu")
     parser.add_argument("--nc", default=1, type=int,
                         help="number of concurrent jobs, default 1")
     args = parser.parse_args()
@@ -39,7 +39,7 @@ def setting2dict(setting):
             raise Exception('unrecognized type, args can only be (k,v) or str')
     return dict(args)
 
-def create_joint_settings(FLAGS, n_settings=10):
+def create_joint_settings(FLAGS, n_settings=30):
     '''
     this applies to global and moe because they don't require the
     clustering function to be given
@@ -79,7 +79,7 @@ def create_joint_settings(FLAGS, n_settings=10):
     joblib.dump(settings, fname)
     return settings
 
-def create_cluster_model_settings(FLAGS, n_settings=10):
+def create_cluster_model_settings(FLAGS, n_settings=30):
     '''
     uses create_joint settings as base, assumes global model is given
     return model_settings, cluster_settings
@@ -147,7 +147,7 @@ def experiment_debug_joint(FLAGS, expname='debug', test_time=False, viz_time=Fal
               ('--result_dir', 'debug'),
               '--include_cohort_as_feature',
               # '--test_time',
-              # '--bootstrap',              
+              # '--bootstrap',
               ('--epochs', 100),
               ('--global_model_fn', FLAGS.global_model_fn),
               ('--result_suffix', '_' + expname),
@@ -159,7 +159,7 @@ def experiment_debug_joint(FLAGS, expname='debug', test_time=False, viz_time=Fal
     if viz_time:
         tasks = [['--viz_time'] + setting for setting in tasks]
     run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
-    
+
 def experiment_debug_separate(FLAGS, expname='debug2', test_time=False,
                               debug=None, dataname='eicu'):
     '''
@@ -216,6 +216,7 @@ def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='eicu',
 
     tasks = [[('--model_type', 'MOE'),
               ('--result_dir', FLAGS.eicu_cohort),
+              ('--eicu_cohort', FLAGS.eicu_cohort),
               ('--dataname', dataname),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
@@ -239,6 +240,7 @@ def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='eicu',
 
     tasks = [[('--model_type', 'GLOBAL'),
               ('--result_dir', FLAGS.eicu_cohort),
+              ('--eicu_cohort', FLAGS.eicu_cohort),
               ('--dataname', dataname),
               ('--result_suffix', '_' + expname)] +
              setting for setting in settings]
@@ -267,12 +269,14 @@ def experiment3(FLAGS, expname='mtl_od', test_time=False,
 
     cluster_settings = [[('--model_type', 'GLOBAL'),
                          ('--result_dir', FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
                        ('--result_dir', FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
@@ -306,12 +310,14 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
 
     cluster_settings = [[('--model_type', 'VAL_CURVE'),
                          ('--result_dir', FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
                        ('--result_dir', FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
@@ -345,12 +351,14 @@ def experiment5(FLAGS, expname='mtl_oi', test_time=False,
 
     cluster_settings = [[('--model_type', 'AE'),
                          ('--result_dir', FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
                        ('--result_dir', FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
@@ -384,12 +392,14 @@ def experiment6(FLAGS, expname='snapshot_od', test_time=False,
 
     cluster_settings = [[('--model_type', 'GLOBAL'),
                          ('--result_dir', FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
                        ('--result_dir', FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
@@ -423,12 +433,14 @@ def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
 
     cluster_settings = [[('--model_type', 'VAL_CURVE'),
                          ('--result_dir', FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
                        ('--result_dir', FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
@@ -462,12 +474,14 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
 
     cluster_settings = [[('--model_type', 'AE'),
                          ('--result_dir', FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
                          ('--global_model_fn', FLAGS.global_model_fn),
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
                        ('--result_dir', FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
@@ -481,7 +495,7 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
-    
+
 def main():
     FLAGS = get_args()
     '''
@@ -491,15 +505,15 @@ def main():
     3. mtl with [ae|global|val_curve]
     4. snapshot with [ae|global|val_curve]
     '''
-    # experiment1(FLAGS)
-    # experiment2(FLAGS, debug=list(range(10,30)))
+    # experiment1(FLAGS, debug=range(10, 30))
+    # experiment2(FLAGS, debug=range(10, 30))
     # #### need global model
-    experiment3(FLAGS) # ran on mor
-    # experiment4(FLAGS)
+    experiment3(FLAGS)
+    experiment4(FLAGS)
     # experiment5(FLAGS) # slowest
-    experiment6(FLAGS) # ran on mor
-    # experiment7(FLAGS)    
-    # experiment8(FLAGS)    
-    
+    experiment6(FLAGS)
+    experiment7(FLAGS)
+    # experiment8(FLAGS) # also slow but once 5 is done, can reuse
+
 if __name__ == '__main__':
     main()
