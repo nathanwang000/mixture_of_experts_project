@@ -51,6 +51,10 @@ https://github.com/mit-ddig/multitask-patients
   - [ ] (later) refactor the pipeline for general training; later could add in hao's idea
   - [ ] think about tune.py how to record error
   - [ ] add a progress bar to train
+=======
+  - [ ] get result that jenna want: make mtl or what a hyper parameter; make
+    dependent and independent as a hyperparameter
+>>>>>>> 8d897873db24b4a344b8a5a3e0dddd93ecd3362c
 
 ** old
   1. [X] see the performance of random initialization on clean template
