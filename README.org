@@ -21,6 +21,7 @@ https://github.com/mit-ddig/multitask-patients
   - [ ] add a progress bar to train
 
 * TODO left to finish
+  SCHEDULED: <2020-06-01 Mon> DEADLINE: <2020-06-01 Mon>
 
   - [X] rewrite data loading to using dataset
     - [X] preprocess to save X and Y
@@ -46,17 +47,20 @@ https://github.com/mit-ddig/multitask-patients
     num_workers 2
 
    SCHEDULED: <2020-05-31 Sun>
-  - [ ] finish the draft except for validation data
-  - [ ] check if the best models are on the edge of the search range
-  - [ ] update to Jenna (12-8 pm calling it!): only write the unambiguous part:
+  - [X] finish the draft except for validation data
+  - [X] update to Jenna (12-8 pm calling it!): only write the unambiguous part:
     the setup and motivation, leave the rest as flexible as possible, also
     convert to the correct format
     Shock take 6 min to run: translate to 50 hours (for 10 seed)
     Mortality is quick (5 hours to get 6 seed)
     ARF takes 3 min to run (5 hour 2 seed): 25 hours (for 10 seed)
-  - [ ] run a small n experiment of mortality: remember to use the same
+  - [X] run a small n experiment eicu of mortality: remember to use the same
     validation and test set when reporting (apply it after train/val/test split)
-  - [ ] look at validation data: debug
+
+   DEADLINE: <2020-06-04 Thu>
+  - [ ] think about how to best do the run the small experiment
+  - [ ] check if the best models are on the edge of the search range
+  - [ ] look at validation data: debug (my guess is improper hyperparameter search)
 
 ** old
   1. [X] see the performance of random initialization on clean template
