@@ -8,6 +8,8 @@ from sklearn.externals import joblib
 import argparse
 from tune import run
 
+gpus = [5, 6]
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--global_model_fn", required=True, type=str,
@@ -17,7 +19,7 @@ def get_args():
                         help='subset indices for the data; e.g. eICU_data/mortality/pct_{pct}_train_indices/0.pkl')
     parser.add_argument("--eicu_cohort", type=str, default='mortality',
                         choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],
-                        help="the cohort for eicu")    
+                        help="the cohort for eicu")
     parser.add_argument("--nc", default=1, type=int,
                         help="number of concurrent jobs, default 1")
     args = parser.parse_args()
@@ -160,7 +162,7 @@ def experiment_debug_joint(FLAGS, expname='debug', test_time=False, viz_time=Fal
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
     if viz_time:
         tasks = [['--viz_time'] + setting for setting in tasks]
-    run('moe.py', tasks, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', tasks, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment_debug_separate(FLAGS, expname='debug2', test_time=False,
                               debug=None, dataname='eicu'):
@@ -196,10 +198,10 @@ def experiment_debug_separate(FLAGS, expname='debug2', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 ### real experiments
 def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='eicu',
@@ -210,7 +212,7 @@ def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='eicu',
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     settings = create_joint_settings(FLAGS)
 
     if debug is not None:
@@ -229,7 +231,7 @@ def experiment1(FLAGS, expname='moe_exp', test_time=False, dataname='eicu',
              setting for setting in settings]
     if test_time:
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
-    run('moe.py', tasks, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', tasks, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='eicu',
                 debug=None):
@@ -239,7 +241,7 @@ def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='eicu',
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     settings = create_joint_settings(FLAGS)
 
     if debug is not None:
@@ -250,7 +252,7 @@ def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='eicu',
             settings = settings[idx:idx+1]
 
     tasks = [[('--model_type', 'GLOBAL'),
-              ('--train_data_subset_path', FLAGS.train_data_subset_path),              
+              ('--train_data_subset_path', FLAGS.train_data_subset_path),
               ('--result_dir', FLAGS.eicu_cohort),
               ('--eicu_cohort', FLAGS.eicu_cohort),
               ('--dataname', dataname),
@@ -258,7 +260,7 @@ def experiment2(FLAGS, expname='global_exp', test_time=False, dataname='eicu',
              setting for setting in settings]
     if test_time:
         tasks = [['--test_time', '--bootstrap'] + setting for setting in tasks]
-    run('moe.py', tasks, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', tasks, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 ### experiments that requires clustering
 # mtl no prior
@@ -270,7 +272,7 @@ def experiment3(FLAGS, expname='mtl_od', test_time=False,
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -284,7 +286,8 @@ def experiment3(FLAGS, expname='mtl_od', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'GLOBAL'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),                
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         "--cluster_add_result_suffix",
                          ('--result_dir', FLAGS.eicu_cohort),
                          ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
@@ -304,10 +307,10 @@ def experiment3(FLAGS, expname='mtl_od', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
                 debug=None, dataname='eicu'):
@@ -317,7 +320,7 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -331,7 +334,8 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'VAL_CURVE'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),                         
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         "--cluster_add_result_suffix",
                          ('--result_dir', FLAGS.eicu_cohort),
                          ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
@@ -339,7 +343,7 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
-                       ('--train_data_subset_path', FLAGS.train_data_subset_path),                       
+                       ('--train_data_subset_path', FLAGS.train_data_subset_path),
                        ('--result_dir', FLAGS.eicu_cohort),
                        ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
@@ -351,10 +355,10 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment5(FLAGS, expname='mtl_oi', test_time=False,
                 debug=None, dataname='eicu'):
@@ -364,7 +368,7 @@ def experiment5(FLAGS, expname='mtl_oi', test_time=False,
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -378,7 +382,8 @@ def experiment5(FLAGS, expname='mtl_oi', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'AE'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),                         
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         "--cluster_add_result_suffix",
                          ('--result_dir', FLAGS.eicu_cohort),
                          ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
@@ -386,7 +391,7 @@ def experiment5(FLAGS, expname='mtl_oi', test_time=False,
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'MULTITASK'),
-                       ('--train_data_subset_path', FLAGS.train_data_subset_path),                       
+                       ('--train_data_subset_path', FLAGS.train_data_subset_path),
                        ('--result_dir', FLAGS.eicu_cohort),
                        ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
@@ -398,10 +403,10 @@ def experiment5(FLAGS, expname='mtl_oi', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment6(FLAGS, expname='snapshot_od', test_time=False,
                 debug=None, dataname='eicu'):
@@ -411,7 +416,7 @@ def experiment6(FLAGS, expname='snapshot_od', test_time=False,
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -425,7 +430,8 @@ def experiment6(FLAGS, expname='snapshot_od', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'GLOBAL'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),                         
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         "--cluster_add_result_suffix",
                          ('--result_dir', FLAGS.eicu_cohort),
                          ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
@@ -433,7 +439,7 @@ def experiment6(FLAGS, expname='snapshot_od', test_time=False,
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
-                       ('--train_data_subset_path', FLAGS.train_data_subset_path),                       
+                       ('--train_data_subset_path', FLAGS.train_data_subset_path),
                        ('--result_dir', FLAGS.eicu_cohort),
                        ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
@@ -445,10 +451,10 @@ def experiment6(FLAGS, expname='snapshot_od', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
                 debug=None, dataname='eicu'):
@@ -458,7 +464,7 @@ def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -472,7 +478,8 @@ def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'VAL_CURVE'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),                         
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         "--cluster_add_result_suffix",
                          ('--result_dir', FLAGS.eicu_cohort),
                          ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
@@ -491,10 +498,10 @@ def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
                 debug=None, dataname='eicu'):
@@ -504,7 +511,7 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
-    
+
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -518,7 +525,8 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
             model_settings = model_settings[idx:idx+1]
 
     cluster_settings = [[('--model_type', 'AE'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),                         
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         "--cluster_add_result_suffix",
                          ('--result_dir', FLAGS.eicu_cohort),
                          ('--eicu_cohort', FLAGS.eicu_cohort),
                          ('--dataname', dataname),
@@ -526,7 +534,7 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
                          ('--result_suffix', '_' + expname)] +
                         setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
-                       ('--train_data_subset_path', FLAGS.train_data_subset_path),                       
+                       ('--train_data_subset_path', FLAGS.train_data_subset_path),
                        ('--result_dir', FLAGS.eicu_cohort),
                        ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
@@ -538,10 +546,10 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
 def main():
     FLAGS = get_args()
@@ -552,14 +560,14 @@ def main():
     3. mtl with [ae|global|val_curve]
     4. snapshot with [ae|global|val_curve]
     '''
-    experiment1(FLAGS)
-    experiment2(FLAGS)
+    # experiment1(FLAGS)
+    # experiment2(FLAGS)
     # #### need global model
-    # experiment3(FLAGS)
-    # experiment4(FLAGS) # need to rerun        
+    experiment3(FLAGS)
+    experiment4(FLAGS)
     # experiment5(FLAGS) # slowest
-    # experiment6(FLAGS) # need to rerun
-    # experiment7(FLAGS) # need to rerun
+    experiment6(FLAGS)
+    experiment7(FLAGS)
     # experiment8(FLAGS) # also slow but once 5 is done, can reuse
 
 if __name__ == '__main__':

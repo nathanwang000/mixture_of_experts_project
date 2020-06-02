@@ -56,6 +56,9 @@ def get_args():
                         help="indicating \
         which type of model to run. Type: String.")
     parser.add_argument("--pmt", action="store_true", default=False)
+    parser.add_argument("--cluster_add_result_suffix", action="store_true", default=False,
+                        help='''cluster models also add result suffix; default is False b/c many models
+                                can share same cluster (e.g. snapshot ensemble vs mtl)''')
     parser.add_argument("--not_pt", action="store_true", default=False,
                         help='not use pretrained global model when training validation curve')
     parser.add_argument("--latent_dim", type=int, default=100, #50, \
@@ -119,7 +122,10 @@ def get_suffix_fname_model(FLAGS):
     '''common model suffix'''
     # secondary mark change later
     if FLAGS.runname is not None:
-        return FLAGS.runname # + FLAGS.result_suffix # don't need this b/c it is for model
+        suffix = FLAGS.runname
+        if FLAGS.cluster_add_result_suffix:
+            suffix += FLAGS.result_suffix
+        return suffix
     
     fname_parts = [FLAGS.latent_dim, FLAGS.data_hours]
     if FLAGS.pmt:
@@ -130,7 +136,10 @@ def get_suffix_fname_cluster(FLAGS):
     '''common cluster model suffix'''
     # secondary mark change later
     if FLAGS.runname is not None:
-        return FLAGS.runname # + FLAGS.result_suffix # don't need this b/c it is for model
+        suffix = FLAGS.runname
+        if FLAGS.cluster_add_result_suffix:
+            suffix += FLAGS.result_suffix
+        return suffix
     
     fname_parts = [FLAGS.model_type, FLAGS.num_clusters, FLAGS.data_hours]
     if FLAGS.pmt:
