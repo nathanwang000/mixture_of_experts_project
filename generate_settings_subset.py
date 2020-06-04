@@ -43,7 +43,7 @@ def setting2dict(setting):
             raise Exception('unrecognized type, args can only be (k,v) or str')
     return dict(args)
 
-def create_joint_settings(FLAGS, n_settings=30):
+def create_joint_settings(FLAGS, n_settings=10):
     '''
     this applies to global and moe because they don't require the
     clustering function to be given
@@ -83,7 +83,7 @@ def create_joint_settings(FLAGS, n_settings=30):
     joblib.dump(settings, fname)
     return settings
 
-def create_cluster_model_settings(FLAGS, n_settings=30):
+def create_cluster_model_settings(FLAGS, n_settings=10):
     '''
     uses create_joint settings as base, assumes global model is given
     return model_settings, cluster_settings
@@ -510,6 +510,7 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
     '''
     pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
     pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
+    cluster_expname = "pct{}_{}_{}".format(pct, pct_num, "mtl_oi") # share the cluster
     expname = "pct{}_{}_{}".format(pct, pct_num, expname)
 
     if FLAGS.global_model_fn is None: return
@@ -524,15 +525,15 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
             cluster_settings = cluster_settings[idx:idx+1]
             model_settings = model_settings[idx:idx+1]
 
-    cluster_settings = [[('--model_type', 'AE'),
-                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
-                         "--cluster_add_result_suffix",
-                         ('--result_dir', FLAGS.eicu_cohort),
-                         ('--eicu_cohort', FLAGS.eicu_cohort),
-                         ('--dataname', dataname),
-                         ('--global_model_fn', FLAGS.global_model_fn),
-                         ('--result_suffix', '_' + expname)] +
-                        setting for setting in cluster_settings]
+    # cluster_settings = [[('--model_type', 'AE'),
+    #                      ('--train_data_subset_path', FLAGS.train_data_subset_path),
+    #                      "--cluster_add_result_suffix",
+    #                      ('--result_dir', FLAGS.eicu_cohort),
+    #                      ('--eicu_cohort', FLAGS.eicu_cohort),
+    #                      ('--dataname', dataname),
+    #                      ('--global_model_fn', FLAGS.global_model_fn),
+    #                      ('--result_suffix', '_' + cluster_expname)] +
+    #                     setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
                        ('--train_data_subset_path', FLAGS.train_data_subset_path),
                        ('--result_dir', FLAGS.eicu_cohort),
@@ -540,13 +541,14 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
-                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                       ('--cohort_filepath', str(i) + '_' + cluster_expname + '.npy')] +
                       setting for i, setting in enumerate(model_settings)]
 
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
+    # don't need to run cluster setting b/c exp5 should already ran this
+    # run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
@@ -563,12 +565,12 @@ def main():
     # experiment1(FLAGS)
     # experiment2(FLAGS)
     # #### need global model
-    experiment3(FLAGS)
-    experiment4(FLAGS)
+    # experiment3(FLAGS)
+    # experiment4(FLAGS)
     # experiment5(FLAGS) # slowest
-    experiment6(FLAGS)
-    experiment7(FLAGS)
-    # experiment8(FLAGS) # also slow but once 5 is done, can reuse
+    # experiment6(FLAGS)
+    # experiment7(FLAGS)
+    experiment8(FLAGS) # also slow but once 5 is done, can reuse
 
 if __name__ == '__main__':
     main()

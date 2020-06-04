@@ -491,7 +491,8 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
+    # assumes exp5 already run the cluster
+    # run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
@@ -509,11 +510,11 @@ def main():
     # experiment2(FLAGS)
     # #### need global model
     # experiment3(FLAGS)
-    experiment4(FLAGS)
-    # experiment5(FLAGS) # slowest
+    # experiment4(FLAGS)
+    experiment5(FLAGS) # slowest
     # experiment6(FLAGS) 
-    experiment7(FLAGS)
-    # experiment8(FLAGS) # also slow but once 5 is done, can reuse
+    # experiment7(FLAGS)
+    experiment8(FLAGS) # also slow but once 5 is done, can reuse
 
 if __name__ == '__main__':
     main()

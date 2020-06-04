@@ -14,11 +14,17 @@ https://github.com/mit-ddig/multitask-patients
    cluster_moe.py: my code to perform clustering
 
 * TODO Future todos
-  - [ ] (later) refactor the pipeline for general training; later could add in
-    hao's idea
+  - [ ] refactor the pipeline for general training
   - [ ] make train to be able to stop less than a full epoch
   - [ ] think about tune.py how to record error
   - [ ] add a progress bar to train
+  - [ ] optimize pytorch dataloader [[https://msit.microsoftstream.com/video/b94ba1ff-0400-96d0-2677-f1ea94aad7a1?channelId=b1516fa1-c1c4-4e79-86aa-34185f6bd1f9][link from MSR]]
+    - [ ] pin memory
+    - [ ] more data workers
+    - [ ] use persistent dataloader to remove initial cost of epoch
+    - [ ] use software pipeline to make main process non blocking
+    - [ ] use distributed data parallel as opposed to data parallel to bypass
+      PIL
 
 * TODO left to finish
   SCHEDULED: <2020-06-01 Mon> DEADLINE: <2020-06-01 Mon>
@@ -58,7 +64,7 @@ https://github.com/mit-ddig/multitask-patients
     validation and test set when reporting (apply it after train/val/test split)
 
    DEADLINE: <2020-06-04 Thu>
-  - [ ] think about how to best do the run the small experiment
+  - [X] think about how to best do the run the small experiment
   - [ ] check if the best models are on the edge of the search range
   - [ ] look at validation data: debug (my guess is improper hyperparameter search)
 
