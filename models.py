@@ -112,7 +112,8 @@ class MoE_MIMIC_Model(nn.Module):
             mlp_layers = [input_dim] + [multi_units] * n_multi_layers + [output_dim]
             experts.append(nn.Sequential(MLP(mlp_layers),
                                          nn.Sigmoid()))
-        
+
+        gating_function = MLP(mlp_layers)
         gate = AdaptiveGate(input_dim, len(experts), forward_function=gating_function)
         self.moe = MoO(experts, gate)    
         
