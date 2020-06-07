@@ -8,7 +8,7 @@ from sklearn.externals import joblib
 import argparse
 from tune import run
 
-gpus = [0, 7]
+gpus = [5, 6]
 
 def get_args():
     parser = argparse.ArgumentParser()

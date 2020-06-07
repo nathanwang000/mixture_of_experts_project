@@ -109,12 +109,15 @@ class MoE_MIMIC_Model(nn.Module):
         # individual layers
         experts = nn.ModuleList()
         for task_num in range(n_tasks):
-            mlp_layers = [input_dim] + [multi_units] * n_multi_layers + [output_dim]
+            mlp_layers = [input_dim] + [multi_units] * n_multi_layers + \
+                [output_dim]
             experts.append(nn.Sequential(MLP(mlp_layers),
                                          nn.Sigmoid()))
 
-        gating_function = MLP(mlp_layers)
-        gate = AdaptiveGate(input_dim, len(experts), forward_function=gating_function)
+        gating_function = MLP([input_dim] + [multi_units] * n_multi_layers +\
+                              [n_tasks])
+        gate = AdaptiveGate(input_dim, len(experts),
+                            forward_function=gating_function)
         self.moe = MoO(experts, gate)    
         
     def forward(self, x):
@@ -322,6 +325,9 @@ class MoO(MoE):
             o = o.transpose(self.expert_dim, -1)
             o = o.transpose(self.bs_dim, -2) 
 
+            assert coef.shape[-1] == o.shape[-1] and\
+                coef.shape[-2] == o.shape[-2], "need (bs, n_expert) match"
+            
             # change back
             res = o * coef
             res = res.transpose(self.expert_dim, -1)

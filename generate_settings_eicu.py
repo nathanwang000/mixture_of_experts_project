@@ -11,7 +11,8 @@ from tune import run
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--global_model_fn", required=True, type=str,
-                        help="best global model file name in result_dir/logs/models/,\
+                        help="best global model file name in\
+                        result_dir/logs/models/,\
                         example=10_global_exp.m")
     parser.add_argument("--eicu_cohort", type=str, required=True,
                         choices=['ARF4', 'ARF12', 'Shock4', 'Shock12', 'mortality'],

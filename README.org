@@ -1,5 +1,9 @@
 https://github.com/mit-ddig/multitask-patients
 * code documentation
+
+note mimic experiment is in mld4:data7
+others are in mld4:data6
+
 ** run large scale experiment
    generate_settings: generate settings and run experiments
    it depends on tune.py to do parallel running
