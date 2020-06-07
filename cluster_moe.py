@@ -192,11 +192,12 @@ def train_seq_ae_pytorch(X_train, X_val, FLAGS):
                              create_loader(X_train, X_train, batch_size=64),
                              criterion, optimizer,
                              FLAGS.ae_epochs,
-                             savename = model_dir,
-                             val_loader = create_loader(X_val, X_val, batch_size=64),
+                             val_loader = create_loader(X_val, X_val,
+                                                        batch_size=64),
                              es_named_criterion = ('loss', get_c, True),
                              verbose=True)
 
+    os.system('mkdir -p {}'.format(model_dir))
     joblib.dump(train_log, '{}/log'.format(model_dir))
     torch.save(model, seq_ae_fn)
     return model.encoder_forward
