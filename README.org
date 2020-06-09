@@ -1,4 +1,7 @@
 https://github.com/mit-ddig/multitask-patients
+
+one should note that eicu consumes a lot of memory b/c the model is too large.
+
 * code documentation
 
 note mimic experiment is in mld4:data7

@@ -334,7 +334,7 @@ def train(net, loader, criterion, opt, n_epochs, verbose=False,
             o = net(x)
             l = criterion(o, y).mean()
             l.backward()
-            opt.step()            
+            opt.step()
             losses.append(l.detach().item())
 
         # early stopping

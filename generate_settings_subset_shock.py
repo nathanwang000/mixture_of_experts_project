@@ -43,7 +43,7 @@ def setting2dict(setting):
             raise Exception('unrecognized type, args can only be (k,v) or str')
     return dict(args)
 
-def create_joint_settings(FLAGS, n_settings=30):
+def create_joint_settings(FLAGS, n_settings=10):
     '''
     this applies to global and moe because they don't require the
     clustering function to be given
@@ -83,7 +83,7 @@ def create_joint_settings(FLAGS, n_settings=30):
     joblib.dump(settings, fname)
     return settings
 
-def create_cluster_model_settings(FLAGS, n_settings=30):
+def create_cluster_model_settings(FLAGS, n_settings=10):
     '''
     uses create_joint settings as base, assumes global model is given
     return model_settings, cluster_settings
@@ -565,12 +565,17 @@ def main():
     # experiment1(FLAGS)
     # experiment2(FLAGS)
     # #### need global model
-    experiment3(FLAGS)
-    experiment4(FLAGS)
-    # experiment5(FLAGS) # slowest
-    experiment6(FLAGS)
-    experiment7(FLAGS)
-    # experiment8(FLAGS) # also slow but once 5 is done, can reuse
+
+    pct = int(FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0])
+    if pct in [10, 20]:
+        experiment3(FLAGS)
+        experiment4(FLAGS)
+        experiment6(FLAGS)
+        experiment7(FLAGS)
+
+    FLAGS.nc = 2
+    experiment5(FLAGS) # slowest
+    experiment8(FLAGS) # also slow but once 5 is done, can reuse
 
 if __name__ == '__main__':
     main()
