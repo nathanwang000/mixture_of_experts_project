@@ -328,10 +328,10 @@ def experiment4(FLAGS, expname='mtl_val_curve', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 def experiment5(FLAGS, expname='mtl_oi', test_time=False,
                 debug=None, dataname='eicu'):
@@ -410,10 +410,10 @@ def experiment6(FLAGS, expname='snapshot_od', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
                 debug=None, dataname='eicu'):
@@ -451,16 +451,17 @@ def experiment7(FLAGS, expname='snapshot_val_curve', test_time=False,
     # acknowledge the temporal dependence between the runs
     # first run cluster_settings, followed by model_settings
     # also make sure model_settings uses cluster settings' model
-    run('cluster_moe.py', cluster_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('cluster_moe.py', cluster_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
     if test_time:
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
-    run('moe.py', model_settings, gpus=[0, 7], n_concurrent_process=FLAGS.nc)
+    run('moe.py', model_settings, gpus=[5, 6], n_concurrent_process=FLAGS.nc)
 
 def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
                 debug=None, dataname='eicu'):
     '''
     snapshot outcome independent (AE)
     '''
+    cluster_expname = "mtl_oi"
     if FLAGS.global_model_fn is None: return
     cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
 
@@ -473,20 +474,20 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
             cluster_settings = cluster_settings[idx:idx+1]
             model_settings = model_settings[idx:idx+1]
 
-    cluster_settings = [[('--model_type', 'AE'),
-                         ('--result_dir', FLAGS.eicu_cohort),
-                         ('--eicu_cohort', FLAGS.eicu_cohort),
-                         ('--dataname', dataname),
-                         ('--global_model_fn', FLAGS.global_model_fn),
-                         ('--result_suffix', '_' + expname)] +
-                        setting for setting in cluster_settings]
+    # cluster_settings = [[('--model_type', 'AE'),
+    #                      ('--result_dir', FLAGS.eicu_cohort),
+    #                      ('--eicu_cohort', FLAGS.eicu_cohort),
+    #                      ('--dataname', dataname),
+    #                      ('--global_model_fn', FLAGS.global_model_fn),
+    #                      ('--result_suffix', '_' + expname)] +
+    #                     setting for setting in cluster_settings]
     model_settings = [[('--model_type', 'SNAPSHOT'),
                        ('--result_dir', FLAGS.eicu_cohort),
                        ('--eicu_cohort', FLAGS.eicu_cohort),
                        ('--dataname', dataname),
                        ('--result_suffix', '_' + expname),
                        ('--global_model_fn', FLAGS.global_model_fn),
-                       ('--cohort_filepath', str(i) + '_' + expname + '.npy')] +
+                       ('--cohort_filepath', str(i) + '_' + cluster_expname + '.npy')] +
                       setting for i, setting in enumerate(model_settings)]
 
     # acknowledge the temporal dependence between the runs
@@ -512,7 +513,7 @@ def main():
     # #### need global model
     # experiment3(FLAGS)
     # experiment4(FLAGS)
-    experiment5(FLAGS) # slowest
+    # experiment5(FLAGS) # slowest
     # experiment6(FLAGS) 
     # experiment7(FLAGS)
     experiment8(FLAGS) # also slow but once 5 is done, can reuse
