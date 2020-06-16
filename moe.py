@@ -20,7 +20,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from sklearn.externals import joblib
 
-from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model, Separate_MIMIC_Model
+from models import Global_MIMIC_Model, MoE_MIMIC_Model, MTL_MIMIC_Model
+from models import Separate_MIMIC_Model, MMoE_MIMIC_Model, MoE_LSTM_MIMIC_Model
 from utils import train, get_criterion, get_output, load_data
 from dataset import MergeDataset, ColumnDataset, train_val_test_split, dataset2numpy
 from evaluate import bootstrap_metric
@@ -56,7 +57,7 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser.add_argument("--gap_time", type=int, default=12, \
                         help="The gap between data and when we are making predictions. Type: int. Default: 12.")
     parser.add_argument("--model_type", type=str, default='MOE',
-                        choices=['GLOBAL', 'MULTITASK', 'SEPARATE', 'MOE', "SNAPSHOT", "MTL_PT"],
+                        choices=['GLOBAL', 'MULTITASK', 'SEPARATE', 'MOE', "SNAPSHOT", "MTL_PT", "MMOE", "MOE_LSTM"],
                         help="indicating \
         which type of model to run. Type: String.")
     parser.add_argument("--pmt", action="store_true", default=False, help="This is an indicator \
@@ -387,6 +388,62 @@ def create_moe_model(model_args):
         final_model (Keras model): A compiled model with the provided architecture.
     """
     model = MoE_MIMIC_Model(model_args["input_dim"],
+                            model_args["n_layers"],
+                            model_args["units"],
+                            model_args["num_dense_shared_layers"],
+                            model_args["dense_shared_layer_size"],
+                            model_args["n_multi_layers"],
+                            model_args["multi_units"],
+                            model_args["output_dim"],
+                            model_args["FLAGS"].num_clusters)
+    return model
+
+def create_moe_lstm_model(model_args):
+    """
+    Create a moe model with LSTM layer(s), shared dense layer(s), separate dense layer(s)
+    and separate sigmoided outputs.
+    model_args: a dictionary with the following keys
+        input_dim (int): Number of features in the input.
+        n_layers (int): Number of initial LSTM layers.
+        units (int): Number of units in each LSTM layer.
+        num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
+        dense_shared_layer_size (int): Number of units in each dense layer.
+        n_multi_layers (int): Number of task-specific dense layers.
+        multi_layer_size (int): Number of units in each task-specific dense layer.
+        output_dim (int): Number of outputs (1 for binary tasks).
+        tasks (list): list of the tasks.
+    Returns:
+        final_model (Keras model): A compiled model with the provided architecture.
+    """
+    model = MoE_LSTM_MIMIC_Model(model_args["input_dim"],
+                                 model_args["n_layers"],
+                                 model_args["units"],
+                                 model_args["num_dense_shared_layers"],
+                                 model_args["dense_shared_layer_size"],
+                                 model_args["n_multi_layers"],
+                                 model_args["multi_units"],
+                                 model_args["output_dim"],
+                                 model_args["FLAGS"].num_clusters)
+    return model
+
+def create_mmoe_model(model_args):
+    """
+    Create a mmoe model with LSTM layer(s), shared dense layer(s), separate dense layer(s)
+    and separate sigmoided outputs.
+    model_args: a dictionary with the following keys
+        input_dim (int): Number of features in the input.
+        n_layers (int): Number of initial LSTM layers.
+        units (int): Number of units in each LSTM layer.
+        num_dense_shared_layers (int): Number of dense layers following LSTM layer(s).
+        dense_shared_layer_size (int): Number of units in each dense layer.
+        n_multi_layers (int): Number of task-specific dense layers.
+        multi_layer_size (int): Number of units in each task-specific dense layer.
+        output_dim (int): Number of outputs (1 for binary tasks).
+        tasks (list): list of the tasks.
+    Returns:
+        final_model (Keras model): A compiled model with the provided architecture.
+    """
+    model = MMoE_MIMIC_Model(model_args["input_dim"],
                             model_args["n_layers"],
                             model_args["units"],
                             model_args["num_dense_shared_layers"],
@@ -823,6 +880,10 @@ def main():
         run_pytorch_model('mtl_pytorch', create_mtl_model, *run_model_args)
     elif FLAGS.model_type == 'MOE':
         run_pytorch_model('moe', create_moe_model, *run_model_args)
+    elif FLAGS.model_type == 'MOE_LSTM': # include LSTM version of MOE
+        run_pytorch_model('moe_lstm', create_moe_lstm_model, *run_model_args)        
+    elif FLAGS.model_type == 'MMOE':
+        run_pytorch_model('mmoe_mtl', create_mmoe_model, *run_model_args)
     elif FLAGS.model_type == 'SNAPSHOT': # pretrained version of separate
         run_pytorch_model('snapshot_mtl', create_snapshot_model, *run_model_args)
     elif FLAGS.model_type == 'MTL_PT': # pretrained MTL from global - specific layers

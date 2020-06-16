@@ -19,7 +19,7 @@ class Separate_MIMIC_Model(nn.Module):
 class Global_MIMIC_Cluster_Model(nn.Module):
 
     '''global model in Jen's paper in PyTorch used for clustering'''
-    def __init__(self, input_dim, output_dim,
+    def __init__(self, input_dim, output_dim=None,
                  n_layers=1, units=16, num_dense_shared_layers=0,
                  dense_shared_layer_size=0, add_sigmoid=False):
         super(self.__class__, self).__init__()
@@ -38,7 +38,8 @@ class Global_MIMIC_Cluster_Model(nn.Module):
             input_dim = dense_shared_layer_size
 
         # output layer
-        model.append(nn.Linear(input_dim, output_dim))
+        if output_dim is not None:
+            model.append(nn.Linear(input_dim, output_dim))
         if add_sigmoid:
             model.append(nn.Sigmoid())
         self.rest = nn.Sequential(*model)
@@ -128,7 +129,96 @@ class MoE_MIMIC_Model(nn.Module):
         self.lstm.flatten_parameters()                
         o, (h, c) = self.lstm(x, (h, c))
         o = self.shared(h[-1])
-        return torch.clamp(self.moe(o), 0, 1) # rarely need to be clamped, numerical issue in pytorch
+        # rarely need to be clamped, numerical issue in pytorch
+        return torch.clamp(self.moe(o), 0, 1) 
+
+class MMoE_MIMIC_Model(nn.Module):
+
+    ''' mmoe model from jiaqi's kdd 2018 paper '''
+    def __init__(self, input_dim, n_layers, units, num_dense_shared_layers,
+                 dense_shared_layer_size, n_multi_layers, multi_units, output_dim, n_tasks):
+        super(self.__class__, self).__init__()
+        self.num_layers = n_layers
+        self.hidden_size = units
+        self.n_tasks = n_tasks
+        
+        # individual layers
+        # technically n_experts doesn't have to equal to n_tasks, but
+        # I made the design choice of tying them together to reduce one
+        # more hyper parameter
+        experts = nn.ModuleList()
+        for task_num in range(n_tasks):
+            m = Global_MIMIC_Cluster_Model(input_dim, n_layers=n_layers, units=units,
+                                           num_dense_shared_layers=num_dense_shared_layers,
+                                           dense_shared_layer_size=dense_shared_layer_size)
+            experts.append(m)
+
+        # the gate is just a linear layer in the original paper
+        # but we have time series, we give the same architecture as expert
+        self.moes = nn.ModuleList()
+        for task_num in range(n_tasks):
+            m = Global_MIMIC_Cluster_Model(input_dim, n_tasks,
+                                           n_layers=n_layers, units=units,
+                                           num_dense_shared_layers=num_dense_shared_layers,
+                                           dense_shared_layer_size=dense_shared_layer_size)
+            gating_function = m
+            gate = AdaptiveGate(input_dim, len(experts), # dummy given gating_function
+                                forward_function=gating_function)
+
+            self.moes.append(MoO(experts, gate))
+
+        # cohort specific layers
+        self.cohort_models = nn.ModuleList()
+        input_dim = units if num_dense_shared_layers == 0 else dense_shared_layer_size
+        for task_num in range(n_tasks):
+            mlp_layers = [input_dim] + [multi_units] * n_multi_layers + \
+                [output_dim]
+            self.cohort_models.append(nn.Sequential(MLP(mlp_layers),
+                                                    nn.Sigmoid()))
+        
+    def forward(self, x):
+        '''assumes batch first'''
+        o = []
+        for i in range(self.n_tasks):
+            o.append(self.cohort_models[i](self.moes[i](x)))
+
+        return o
+
+class MoE_LSTM_MIMIC_Model(nn.Module):
+
+    ''' moe including lstm model '''
+    def __init__(self, input_dim, n_layers, units, num_dense_shared_layers,
+                 dense_shared_layer_size, n_multi_layers, multi_units, output_dim, n_tasks):
+        super(self.__class__, self).__init__()
+        self.num_layers = n_layers
+        self.hidden_size = units
+        self.n_tasks = n_tasks
+        
+        # individual layers
+        experts = nn.ModuleList()
+        for task_num in range(n_tasks):
+            m = Global_MIMIC_Cluster_Model(input_dim, output_dim,
+                                           n_layers=n_layers, units=units,
+                                           num_dense_shared_layers=num_dense_shared_layers,
+                                           dense_shared_layer_size=dense_shared_layer_size,
+                                           add_sigmoid=True)
+            experts.append(m)
+
+        # the gate is just a linear layer in most papers
+        # but we have time series, we give the same architecture as expert
+        m = Global_MIMIC_Cluster_Model(input_dim, n_tasks,
+                                       n_layers=n_layers, units=units,
+                                       num_dense_shared_layers=num_dense_shared_layers,
+                                       dense_shared_layer_size=dense_shared_layer_size)
+        gating_function = m
+        gate = AdaptiveGate(input_dim, len(experts), # dummy given gating_function
+                            forward_function=gating_function)
+        self.moe = MoO(experts, gate)
+        
+    def forward(self, x):
+        '''assumes batch first'''
+        # rarely need to be clamped, numerical issue in pytorch
+        return torch.clamp(self.moe(x), 0, 1) 
 
 class MTL_MIMIC_Model(nn.Module):
 
@@ -303,7 +393,7 @@ class MoO(MoE):
     '''
     def __init__(self, experts, gate, bs_dim=1, expert_dim=0):
         super(MoO, self).__init__(experts, gate)        
-        # this is for RNN architecture: bs_dim = 2 for RNN
+        # this is for RNN architecture: bs_dim = 2 for RNN if not batch first
         self.bs_dim = bs_dim
         self.expert_dim = expert_dim
 
