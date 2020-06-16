@@ -11,6 +11,15 @@ others are in mld4:data6
 generate_settings_subset.py is essentially the same as generate_settings_subset_mortality.py and generate_settings_subset_arf.py and generate_settings_subset_shock.py;
 They are just there b/c it's easy for me to run
 
+note that generate_settings_subset_mortality.py is the most up to date generation function.
+
+** why some val_curve methods won't run
+   
+   1. 0 samples in the cohort (just didn't assign anything in the cohort)
+   2. everything in the cohort have the same label (cannot compute AUC in that case)
+
+   Whether to deal with this is optional.
+
 ** run large scale experiment
    generate_settings: generate settings and run experiments
    it depends on tune.py to do parallel running

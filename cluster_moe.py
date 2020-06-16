@@ -479,7 +479,7 @@ def main():
         cluster_preds = train_ae_pytorch(cluster_args)        
     if FLAGS.model_type == 'INPUT': # cluster on input
         cluster_preds = train_input(cluster_args)
-    elif FLAGS.model_type == 'GLOBAL':
+    elif FLAGS.model_type == 'GLOBAL': # outcome dependent
         cluster_preds = train_global(cluster_args)
     elif FLAGS.model_type == 'VAL_CURVE':
         cluster_preds = train_val_curve(cluster_args)

@@ -570,6 +570,65 @@ def experiment8(FLAGS, expname='snapshot_oi', test_time=False,
         model_settings = [['--test_time', '--bootstrap'] + setting for setting in model_settings]
     run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
 
+def experiment9(FLAGS, expname='separate_val_curve', test_time=False,
+                debug=None, dataname='eicu'):
+    '''
+    snapshot val curve
+    '''
+    pct = FLAGS.train_data_subset_path.split('pct_')[1].split('_')[0]
+    pct_num = os.path.basename(FLAGS.train_data_subset_path)[:-4] # remove '.pkl'
+    # share the cluster
+    cluster_expname = "pct{}_{}_{}".format(pct, pct_num, "snapshot_val_curve")    
+    expname = "pct{}_{}_{}".format(pct, pct_num, expname)
+    if FLAGS.pct_val < 1:
+        expname = "{}_valpct{}".format(expname, int(FLAGS.pct_val * 100))
+        cluster_expname = "{}_valpct{}".format(cluster_expname, int(FLAGS.pct_val * 100))
+
+        
+
+    if FLAGS.global_model_fn is None: return
+    cluster_settings, model_settings = create_cluster_model_settings(FLAGS)
+
+    if debug is not None:
+        if type(debug) is list:
+            cluster_settings = [cluster_settings[idx] for idx in debug]
+            model_settings = [model_settings[idx] for idx in debug]
+        else:
+            idx = debug
+            cluster_settings = cluster_settings[idx:idx+1]
+            model_settings = model_settings[idx:idx+1]
+
+    cluster_settings = [[('--model_type', 'VAL_CURVE'),
+                         ('--train_data_subset_path', FLAGS.train_data_subset_path),
+                         ('--pct_val', FLAGS.pct_val),
+                         "--cluster_add_result_suffix",
+                         ('--result_dir', FLAGS.result_dir_prefix + FLAGS.eicu_cohort),
+                         ('--eicu_cohort', FLAGS.eicu_cohort),
+                         ('--dataname', dataname),
+                         ('--global_model_fn', FLAGS.global_model_fn),
+                         ('--result_suffix', '_' + expname)] +
+                        setting for setting in cluster_settings]
+    model_settings = [[('--model_type', 'SEPARATE'),
+                       ('--pct_val', FLAGS.pct_val),
+                       ('--result_dir', FLAGS.result_dir_prefix + FLAGS.eicu_cohort),
+                       ('--eicu_cohort', FLAGS.eicu_cohort),
+                       ('--dataname', dataname),
+                       ('--result_suffix', '_' + expname),
+                       ('--global_model_fn', FLAGS.global_model_fn),
+                       ('--cohort_filepath', str(i) + '_' + cluster_expname + '.npy')] +
+                      setting for i, setting in enumerate(model_settings)]
+
+    # acknowledge the temporal dependence between the runs
+    # first run cluster_settings, followed by model_settings
+    # also make sure model_settings uses cluster settings' model
+    # don't need to run cluster b/c 4 and 7 should already ran
+    # run('cluster_moe.py', cluster_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
+    if test_time:
+        model_settings = [['--test_time',
+                           # '--bootstrap'
+        ] + setting for setting in model_settings]
+    run('moe.py', model_settings, gpus=gpus, n_concurrent_process=FLAGS.nc)
+
 def main():
     FLAGS = get_args()
     '''
@@ -586,9 +645,9 @@ def main():
     # experiment4(FLAGS)
     # experiment5(FLAGS) # slowest
     # experiment6(FLAGS)
-    experiment7(FLAGS)    
-    # experiment7(FLAGS, debug=[0,1,2,3], test_time=True)
+    # experiment7(FLAGS)    
     # experiment8(FLAGS) # also slow but once 5 is done, can reuse
+    experiment9(FLAGS)    
 
 if __name__ == '__main__':
     main()
