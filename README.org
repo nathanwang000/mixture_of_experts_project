@@ -4,8 +4,12 @@ one should note that eicu consumes a lot of memory b/c the model is too large.
 
 * code documentation
 
-note mimic experiment is in mld4:data7
+mimic experiment is in mld4:data7
+eicu/mortality is in mld4:data7/mortality
 others are in mld4:data6
+
+generate_settings_subset.py is essentially the same as generate_settings_subset_mortality.py and generate_settings_subset_arf.py and generate_settings_subset_shock.py;
+They are just there b/c it's easy for me to run
 
 ** run large scale experiment
    generate_settings: generate settings and run experiments

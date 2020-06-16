@@ -36,6 +36,8 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_data_subset_path", default=None, type=str,
                         help='subset indices for the data; e.g. eICU_data/mortality/pct_{pct}_train_indices/0.pkl')
+    parser.add_argument("--pct_val", default=1, type=float,
+                        help='pct of validation data to use: useful for val_curve')
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
@@ -423,6 +425,16 @@ def main():
         X_train = Subset(X, idx)
         y_train = Subset(Y, idx)
         cohorts_train = Subset(cohort_col, idx)
+
+    # use smaller validation set, but keep train and test the same
+    if FLAGS.pct_val < 1:
+        np.random.seed(42)
+        idx = np.random.choice(len(X_val), size=int(len(X_val) * FLAGS.pct_val),
+                               replace=False)
+        print("Using {} validation data".format(len(idx)))
+        X_val = Subset(X_val, idx)
+        y_val = Subset(y_val, idx)
+        cohorts_val = Subset(cohorts_val, idx)
     
     # if FLAGS.pmt:
     #     feature_importance_fn = 'feature_importance1000.pkl'

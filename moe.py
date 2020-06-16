@@ -29,6 +29,8 @@ def get_args(): # adapted from run_mortality_prediction.py
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_data_subset_path", default=None, type=str,
                         help='subset indices for the data; e.g. eICU_data/mortality/pct_{pct}_train_indices/0.pkl')
+    parser.add_argument("--pct_val", default=1, type=float,
+                        help='pct of validation data to use: useful for val_curve')
     parser.add_argument("--dataname", type=str, default='mimic',
                         choices=['mimic', 'eicu'],
                         help="indicating which data to run. Type: String.")
@@ -697,16 +699,16 @@ def run_pytorch_model(model_name, create_model, X_train, y_train, cohorts_train,
                "_".join(model_fname_parts) + FLAGS.result_suffix + '.m')
 
     ############### evaluation ###########
-    # validation
-    print('testing on validation set')
-    cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
-    save_cohort_aucs(cohort_aucs, model_name, 'val_auc_on', FLAGS)
-
     # test
     print('testing on test set')
     cohort_aucs = evaluation(model, model_name, X_test, y_test, cohorts_test, all_tasks, FLAGS)
     save_cohort_aucs(cohort_aucs, model_name, 'test_auc_on', FLAGS)
 
+    # validation
+    print('testing on validation set')
+    cohort_aucs = evaluation(model, model_name, X_val, y_val, cohorts_val, all_tasks, FLAGS)
+    save_cohort_aucs(cohort_aucs, model_name, 'val_auc_on', FLAGS)
+    
     print('Saved {} results.'.format(model_name))
 
 def main():
@@ -743,7 +745,18 @@ def main():
         X_train = Subset(X, idx)
         y_train = Subset(Y, idx)
         cohorts_train = Subset(cohort_col, idx)
-    
+
+    # use smaller validation set, but keep train and test the same
+    if FLAGS.pct_val < 1:
+        # make sure cluster and moe use the same set of validation
+        np.random.seed(42)
+        idx = np.random.choice(len(X_val), size=int(len(X_val) * FLAGS.pct_val),
+                               replace=False)
+        print("Using {} validation data".format(len(idx)))
+        X_val = Subset(X_val, idx)
+        y_val = Subset(y_val, idx)
+        cohorts_val = Subset(cohorts_val, idx)
+        
     # Sample Weights
     task_weights = dict()
     cohort_col_np = dataset2numpy(cohort_col).astype(int)
