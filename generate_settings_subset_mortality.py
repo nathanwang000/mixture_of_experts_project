@@ -736,8 +736,12 @@ def main():
 
     if FLAGS.pct_val in [0.2, 0.3]:
         experiment9(FLAGS)
+
+    # if FLAGS.pct_val in [0.01]:
+    #     # need to run this over the entire data
+    #     # b/c exp11 is independent of amount of val
+    #     experiment11(FLAGS)
         
-    experiment11(FLAGS)        
     experiment10(FLAGS)
 
 if __name__ == '__main__':

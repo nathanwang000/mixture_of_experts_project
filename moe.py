@@ -225,7 +225,7 @@ def mtl_loss(yhat, y_z):
     if y_z.shape[1] == 3:
         w = y_z[:, 2]
 
-    y, z = y_z[:, 0], y_z[:, 1]
+    y, z = y_z[:, 0], y_z[:, 1]    
     # from (k, n, 1) to (n, 1)
     yhat = torch.stack(yhat)[z.long(), torch.arange(y.shape[0])].view(-1)
 
@@ -444,14 +444,14 @@ def create_mmoe_model(model_args):
         final_model (Keras model): A compiled model with the provided architecture.
     """
     model = MMoE_MIMIC_Model(model_args["input_dim"],
-                            model_args["n_layers"],
-                            model_args["units"],
-                            model_args["num_dense_shared_layers"],
-                            model_args["dense_shared_layer_size"],
-                            model_args["n_multi_layers"],
-                            model_args["multi_units"],
-                            model_args["output_dim"],
-                            model_args["FLAGS"].num_clusters)
+                             model_args["n_layers"],
+                             model_args["units"],
+                             model_args["num_dense_shared_layers"],
+                             model_args["dense_shared_layer_size"],
+                             model_args["n_multi_layers"],
+                             model_args["multi_units"],
+                             model_args["output_dim"],
+                             len(model_args["tasks"]))
     return model
 
 def create_mtl_model(model_args):
