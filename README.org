@@ -13,6 +13,10 @@ They are just there b/c it's easy for me to run
 
 note that generate_settings_subset_mortality.py is the most up to date generation function.
 
+** design choices
+   
+MMoE: set number of experts same as number of tasks
+   
 ** why some val_curve methods won't run
    
    1. 0 samples in the cohort (just didn't assign anything in the cohort)
